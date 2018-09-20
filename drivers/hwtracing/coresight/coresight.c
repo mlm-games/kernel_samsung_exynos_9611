@@ -232,8 +232,12 @@ static int coresight_enable_sink(struct coresight_device *csdev,
 	 * We need to make sure the "new" session is compatible with the
 	 * existing "mode" of operation.
 	 */
-	if (!sink_ops(csdev)->enable)
-		return -EINVAL;
+	if (sink_ops(csdev)->enable) {
+		ret = sink_ops(csdev)->enable(csdev, mode);
+		if (ret)
+			return ret;
+		csdev->enable = true;
+	}
 
 	ret = sink_ops(csdev)->enable(csdev, mode, data);
 	if (ret)
@@ -441,7 +445,7 @@ int coresight_enable_path(struct list_head *path, u32 mode, void *sink_data)
 
 		switch (type) {
 		case CORESIGHT_DEV_TYPE_SINK:
-			ret = coresight_enable_sink(csdev, mode, sink_data);
+			ret = coresight_enable_sink(csdev, mode);
 			/*
 			 * Sink is the first component turned on. If we
 			 * failed to enable the sink, there are no components
