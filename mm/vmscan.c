@@ -1848,7 +1848,7 @@ putback_inactive_pages(struct lruvec *lruvec, struct list_head *page_list)
 static int current_may_throttle(void)
 {
 #ifdef CONFIG_OPLUS_MM_HACKS
-	if ((current->signal->oom_score_adj < 0))
+	if (current->signal->oom_score_adj < 0)
 		return 0;
 #endif /*CONFIG_OPLUS_MM_HACKS*/
 	return !(current->flags & PF_LESS_THROTTLE) ||
