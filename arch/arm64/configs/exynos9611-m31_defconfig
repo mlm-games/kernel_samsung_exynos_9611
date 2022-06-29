@@ -1484,6 +1484,7 @@ CONFIG_SCSC_ANT=y
 CONFIG_SCSC_BT_ADDRESS_FILENAME="/mnt/vendor/efs/bluetooth/bt_addr"
 # CONFIG_SAMSUNG_KIC is not set
 # CONFIG_SAMSUNG_TUI is not set
+CONFIG_OPLUS_MM_HACKS=y
 
 #
 # MUIC configs
