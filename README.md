@@ -1,1 +1,0 @@
-# M31s_kernel_samsung_opensource
