@@ -10116,6 +10116,11 @@ SYSCALL_DEFINE5(perf_event_open,
 	if (err)
 		return err;
 
+	/* Do we allow access to perf_event_open(2) ? */
+	err = security_perf_event_open(&attr, PERF_SECURITY_OPEN);
+	if (err)
+		return err;
+
 	err = perf_copy_attr(attr_uptr, &attr);
 	if (err)
 		return err;
