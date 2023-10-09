@@ -1346,7 +1346,6 @@ void handle_moddevtable(struct module *mod, struct elf_info *info,
 			if (sym_is(name, namelen, p->device_id)) {
 				do_table(symval, sym->st_size, p->id_size,
 					 p->device_id, p->function, mod);
-					 p->device_id, p->do_entry, mod);
 				break;
 			}
 		}
