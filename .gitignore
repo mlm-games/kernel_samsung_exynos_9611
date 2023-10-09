@@ -133,3 +133,5 @@ local.config
 out/
 toolchain
 toolchain/
+Anykernel3/
+Kernel.zip
