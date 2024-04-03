@@ -2418,12 +2418,16 @@ static noinline void tracing_mark_write(bool start, struct file *file, pgoff_t o
 	if (start) {
 		path = dentry_path(file->f_path.dentry, buf, 256);
 
+#if defined(CONFIG_TRACING) && defined(DEBUG)
 		if (!IS_ERR(path))
 			trace_printk("B|%d|%d , %s , %lu , %d\n", current->tgid, sync, path, offset, size);
 		else
 			trace_printk("B|%d|%d , %s , %lu , %d\n", current->tgid, sync, "dentry_path failed", offset, size);
+#endif
 	} else {
+#if defined(CONFIG_TRACING) && defined(DEBUG)
 		trace_printk("E|%d\n", current->tgid);
+#endif
 	}
 }
 
