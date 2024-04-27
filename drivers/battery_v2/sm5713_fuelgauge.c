@@ -2345,8 +2345,8 @@ static int sm5713_fg_get_property(struct power_supply *psy,
 	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property) psp;
 /*											  
 	static int abnormal_current_cnt = 0;
-	union power_supply_propval value;
 */
+	union power_supply_propval value;
 
 	pr_info("%s: psp = 0x%x\n", __func__, psp);
 	switch (psp) {
@@ -2392,6 +2392,8 @@ static int sm5713_fg_get_property(struct power_supply *psy,
 		case SEC_BATTERY_CAPACITY_CURRENT:
 			break;
 		case SEC_BATTERY_CAPACITY_AGEDCELL:
+			psy_do_property("battery", get, POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN, value);
+			val->intval = (sm5713_get_asoc(fuelgauge) * (value.intval/1000)) / 100;
 			break;
 		case SEC_BATTERY_CAPACITY_CYCLE:
 			sm5713_get_cycle(fuelgauge);
