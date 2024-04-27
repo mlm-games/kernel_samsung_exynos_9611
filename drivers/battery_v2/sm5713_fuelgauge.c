@@ -2519,8 +2519,8 @@ static int sm5713_fg_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_ENABLED:
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
-		val->intval =
-			fuelgauge->battery_data->Capacity * fuelgauge->raw_capacity; //uAh
+		psy_do_property("battery", get, POWER_SUPPLY_PROP_CHARGE_FULL, value);
+		val->intval = value.intval/1000 * fuelgauge->raw_capacity; //uAh
 		break;
 #if defined(CONFIG_BATTERY_AGE_FORECAST)
 	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
