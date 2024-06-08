@@ -20,7 +20,7 @@
 
 * Disable Samsung securities, debug drivers, etc modifications
 * Checkout and rebase against Android common kernel source, Removing Samsung additions to drivers like ext4,f2fs and more
-* Compiled with bleeding edge Neutron Clang 17, with full LLVM binutils, LTO (Link time optimization) and -O3  
+* Compiled with bleeding edge Clang 19, with full LLVM binutils, LTO (Link time optimization) and -O3  
 * Import Erofs, Incremental FS, BinderFS and several backports.
 * Supports DeX touchpad for corresponding OneUI ports that have DeX ported.
 * Lot of debug codes/configuration Samsung added are removed.
@@ -42,9 +42,8 @@ $ git clone https://github.com/Gojikovi/kernel_samsung_universal9611
 $ cd kernel_samsung_universal9611
 
 # Install toolchain
-# You could try any clang/LLVM based toolchain, however I use neutron clang
-# If you are using Arch or distro with latest glibc, You may want to use antman instead.
-$ bash <(curl https://gist.githubusercontent.com/roynatech2544/0feeeb35a6d1782b186990ff2a0b3657/raw/b170134a94dac3594df506716bc7b802add2724b/setup.sh)
+# You could try any clang/LLVM based toolchain, however I use WeebX clang
+# See the intructions: https://github.com/XSans0/WeebX-Clang
 
 # If you want to compile the kernel not for A51 then export DEVICE variable to m21, m31, m31s, f41, gta4xl
 # Build the kernel
