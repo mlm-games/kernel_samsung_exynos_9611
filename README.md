@@ -48,7 +48,7 @@ $ cd kernel_samsung_universal9611
 # Building kernel is simple, a python script is provided.
 # Options inside parenthesis are optional, Parenthesis' with | between 
 # means you have to provide one of those options inside.
-$ python build_kernel.py (--aosp|--oneui) --target=m31 (--no-ksu)
+$ python build_kernel.py (--aosp|--oneui) --target=m31 (--no-ksu) (--allow-dirty)
 ```
 
 After build the image of the kernel will be in out/arch/arm64/boot/Image
