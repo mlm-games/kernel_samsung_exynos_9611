@@ -45,11 +45,10 @@ $ cd kernel_samsung_universal9611
 # You could try any clang/LLVM based toolchain, however I use WeebX clang
 # See the intructions: https://github.com/XSans0/WeebX-Clang
 
-# If you want to compile the kernel not for A51 then export DEVICE variable to m21, m31, m31s, f41, gta4xl
-# Build the kernel
-$ ./build_kernel.sh aosp # (for AOSP)
-$ ./build_kernel.sh oneui # (for OneUI)
-$ DEVICE=m21 ./build_kernel.sh aosp # (for M21, AOSP)
+# Building kernel is simple, a python script is provided.
+# Options inside parenthesis are optional, Parenthesis' with | between 
+# means you have to provide one of those options inside.
+$ python build_kernel.py (--aosp|--oneui) --target=m31 (--no-ksu)
 ```
 
 After build the image of the kernel will be in out/arch/arm64/boot/Image
