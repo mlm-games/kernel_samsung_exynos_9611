@@ -32,13 +32,12 @@ jobs:
       - name: Install packages & setup
         run: |
           sudo apt update
-          curl https://github.com/XSans0/WeebX-Clang/releases/download/WeebX-Clang-19.0.0git-release/WeebX-Clang-19.0.0git.tar.gz --output weebx-clang.tar.gz
+          wget https://github.com/XSans0/WeebX-Clang/releases/download/WeebX-Clang-19.0.0git-release/WeebX-Clang-19.0.0git.tar.gz -O "weebx-clang.tar.gz"
           rm -rf toolchain && mkdir toolchain && tar -xvf weebx-clang.tar.gz -C clang && rm -rf weebx-clang.tar.gz
           sudo apt install bison flex libssl-dev
 
       - name: Run build
         run: |
-          DEVICE= bash build_kernel.sh
           python build_kernel.py --aosp --target=${{matrix.device}}
 
       - name: Upload kernel
