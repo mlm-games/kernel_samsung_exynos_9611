@@ -45,7 +45,6 @@ jobs:
 
       - name: Run build
         run: |
-          sudo mv -v clang\ toolchain\
           git submodule update --remote --init
           python build_kernel.py --aosp --target=${{matrix.device}}
 
