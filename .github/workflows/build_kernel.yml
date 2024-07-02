@@ -37,9 +37,9 @@ jobs:
       - name: Download clang
         run: |
           wget https://github.com/XSans0/WeebX-Clang/releases/download/WeebX-Clang-19.0.0git-release/WeebX-Clang-19.0.0git.tar.gz -O "weebx-clang.tar.gz"
-          rm -rf toolchain && mkdir toolchain && tar -xvf weebx-clang.tar.gz -C clang && rm -rf weebx-clang.tar.gz
+          rm -rf clang && mkdir clang && tar -xvf weebx-clang.tar.gz -C clang && rm -rf weebx-clang.tar.gz
           ls -la
-          cd toolchain
+          cd clang
           ls -la
           cd ..
           
