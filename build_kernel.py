@@ -65,7 +65,7 @@ class CompilerClang:
     @staticmethod
     def test_executable():
         try:
-            popen_impl(['./toolchain/bin/clang', '-v'])
+            popen_impl(['./clang/bin/clang', '-v'])
         except RuntimeError as e:
             print("Failed to execute clang, something went wrong")
             raise e
@@ -73,7 +73,7 @@ class CompilerClang:
     @staticmethod
     def get_version():
         clangversionRegex = r"(.*?clang version \d+(\.\d+)*).*"
-        s = subprocess.Popen(['./toolchain/bin/clang', '-v'], stdout=subprocess.PIPE,
+        s = subprocess.Popen(['./clang/bin/clang', '-v'], stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE)
         _, tcversion = s.communicate()
         tcversion = tcversion.decode('utf-8')
@@ -102,7 +102,7 @@ def main():
     # Check files
     if not check_file("AnyKernel3/version"):
         popen_impl(['git', 'submodule', 'update', '--init'])
-    if not check_file("toolchain"):
+    if not check_file("clang"):
         print(f"Please make toolchain available at {os.getcwd()}")
         return
     
@@ -120,7 +120,7 @@ def main():
     })
     
     # Add toolchain in PATH environment variable
-    tcPath = os.path.join(os.getcwd(), 'toolchain', 'bin')
+    tcPath = os.path.join(os.getcwd(), 'clang', 'bin')
     if tcPath not in os.environ['PATH'].split(os.pathsep):
         os.environ["PATH"] = tcPath + ':' + os.environ["PATH"]
     
