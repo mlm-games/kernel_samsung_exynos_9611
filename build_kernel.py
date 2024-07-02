@@ -65,7 +65,7 @@ class CompilerClang:
     @staticmethod
     def test_executable():
         try:
-            popen_impl(['./clang/bin/clang', '-v'])
+            popen_impl(['./toolchain/bin/clang', '-v'])
         except RuntimeError as e:
             print("Failed to execute clang, something went wrong")
             raise e
@@ -73,7 +73,7 @@ class CompilerClang:
     @staticmethod
     def get_version():
         clangversionRegex = r"(.*?clang version \d+(\.\d+)*).*"
-        s = subprocess.Popen(['./clang/bin/clang', '-v'], stdout=subprocess.PIPE,
+        s = subprocess.Popen(['./toolchain/bin/clang', '-v'], stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE)
         _, tcversion = s.communicate()
         tcversion = tcversion.decode('utf-8')
