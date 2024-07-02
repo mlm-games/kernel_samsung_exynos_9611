@@ -29,11 +29,22 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install packages & setup
+      - name: apt update
         run: |
           sudo apt update
+          sudo apt install bison flex libssl-dev
+          
+      - name: Download clang
+        run: |
           wget https://github.com/XSans0/WeebX-Clang/releases/download/WeebX-Clang-19.0.0git-release/WeebX-Clang-19.0.0git.tar.gz -O "weebx-clang.tar.gz"
           rm -rf toolchain && mkdir toolchain && tar -xvf weebx-clang.tar.gz -C clang && rm -rf weebx-clang.tar.gz
+          ls -la
+          cd toolchain
+          ls -la
+          cd ..
+          
+      - name: Install dependencies
+        run: |
           sudo apt install bison flex libssl-dev
 
       - name: Run build
