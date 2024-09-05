@@ -2,7 +2,7 @@
 VERSION = 4
 PATCHLEVEL = 14
 SUBLEVEL = 348
-EXTRAVERSION = -openela
+EXTRAVERSION = -openela_rusk
 NAME = Petit Gorille
 
 # *DOCUMENTATION*

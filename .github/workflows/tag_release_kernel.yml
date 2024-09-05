@@ -54,3 +54,4 @@ jobs:
         body: |
           Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing hence not recommended)
           Open an issue with the rom and device used when it doesn't boot and your sure it's due to the kernel.
+          All are KSU zips, and dirty flashable
