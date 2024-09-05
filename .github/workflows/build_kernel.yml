@@ -1,0 +1,56 @@
+name: Test build kernel
+
+on:
+  push:
+    branches:
+      Grass-Unified
+  pull_request:
+    branches:
+      Grass-Unified
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - device: a51
+          - device: m30s
+          - device: m21
+          - device: m31
+          - device: m31s
+          - device: f41
+    name: "🚧 Build for ${{matrix.device}}"
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: apt update
+        run: |
+          sudo apt update
+          sudo apt install bison flex libssl-dev
+          
+      - name: Download clang
+        run: |
+          wget https://github.com/XSans0/WeebX-Clang/releases/download/WeebX-Clang-19.0.0git-release/WeebX-Clang-19.0.0git.tar.gz -O "weebx-clang.tar.gz"
+          rm -rf clang && mkdir clang && tar -xvf weebx-clang.tar.gz -C clang && rm -rf weebx-clang.tar.gz
+          
+      - name: Install dependencies
+        run: |
+          sudo apt install bison flex libssl-dev
+
+      - name: Run build
+        run: |
+          git submodule update --remote --init
+          python build_kernel.py --aosp --target=${{matrix.device}}
+
+      - name: Upload kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrassKernel_${{matrix.device}}.zip
+          path: scripts/packaging/Grass*
+

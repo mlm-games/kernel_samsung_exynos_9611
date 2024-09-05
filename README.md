@@ -1,13 +1,10 @@
 
 <h1 align="center">
-  <br>
-  <img src="https://i.ibb.co/LYYJzJC/logo.jpg" alt="Markdownify" width="2048">
-  <br>
-  GrassKernel
+  GrassyKernel
   <br>
 </h1>
 
-<h4 align="center">A custom kernel for the Exynos9611 devices.</h4>
+<h4 align="center">A custom kernel for the Exynos9611 devices. Derived from GrassKernel after it was archived...</h4>
 
 <p align="center">
   <a href="#key-features">Key Features</a> •
@@ -20,7 +17,7 @@
 
 * Disable Samsung securities, debug drivers, etc modifications
 * Checkout and rebase against Android common kernel source, Removing Samsung additions to drivers like ext4,f2fs and more
-* Compiled with bleeding edge Neutron Clang 17, with full LLVM binutils, LTO (Link time optimization) and -O3  
+* Compiled with bleeding edge Clang 19, with full LLVM binutils, LTO (Link time optimization) and -O3  
 * Import Erofs, Incremental FS, BinderFS and several backports.
 * Supports DeX touchpad for corresponding OneUI ports that have DeX ported.
 * Lot of debug codes/configuration Samsung added are removed.
@@ -42,14 +39,14 @@ $ git clone https://github.com/Exynos9611Development/android_kernel_samsung_univ
 $ cd android_kernel_samsung_universal9611
 
 # Install toolchain
-# You could try any clang/LLVM based toolchain, however I use neutron clang
+# You could try any clang/LLVM based toolchain, however I used WeebX clang 19-rc4
+# See the intructions: https://github.com/XSans0/WeebX-Clang
 # If you are using Arch or distro with latest glibc, You may want to use antman instead.
 $ bash <(curl https://gist.githubusercontent.com/roynatech2544/0feeeb35a6d1782b186990ff2a0b3657/raw/b170134a94dac3594df506716bc7b802add2724b/setup.sh)
-
 # Building kernel is simple, a python script is provided.
 # Options inside parenthesis are optional, Parenthesis' with | between 
 # means you have to provide one of those options inside.
-$ python build_kernel.py (--aosp|--oneui) --target=a51 (--no-ksu) (--allow-dirty)
+$ python build_kernel.py (--aosp|--oneui) --target=m31 (--no-ksu) (--allow-dirty)
 ```
 
 After build the image of the kernel will be in out/arch/arm64/boot/Image
