@@ -12,16 +12,11 @@ jobs:
     permissions:
       contents: write
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
-        include:
-          - device: a51
-          - device: m30s
-          - device: m21
-          - device: m31
-          - device: m31s
-          - device: f41
-    name: "Build for ${{matrix.device}}"
+        device: [a51, m30s, m21, m31, m31s, f41]
+        variant: [aosp, oneui]
+    name: "Build ${{ matrix.variant }} for ${{ matrix.device }}"
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -31,7 +26,7 @@ jobs:
       - name: apt update
         run: |
           sudo apt -y update
-          sudo apt -y install -y bison flex libssl-dev python3 python-is-python3
+          sudo apt -y install bison flex libssl-dev python3 python-is-python3
           
       - name: Download clang
         run: |
@@ -41,20 +36,19 @@ jobs:
       - name: Run build
         run: |
           git submodule update --remote --init
-          python build_kernel.py --aosp --target=${{matrix.device}} --allow-dirty
+          python build_kernel.py --${{ matrix.variant }} --target=${{ matrix.device }} --allow-dirty
 
-
-    - name: Upload to Release        # Github artifact action eats your space even if you delete the artifacts :\ (the K is missing in files as it could change case in future)
-      uses: softprops/action-gh-release@v2
-      if: success()
-      with:
-        files: |
-          *ernel*.zip
-        name: Grass Kernel ${{ matrix.variant }} for ${{ matrix.device }} // ${{ github.ref_name }}
-        tag_name: ${{ github.ref }}
-        body: |
-          Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing hence not recommended)
-          Open an issue with the rom and device used when it doesn't boot and you're sure it's due to the kernel.
-          All are KSU zips, and dirty flashable
-          
-          AOSP and OneUI variants are provided for each device.
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        if: success()
+        with:
+          files: |
+            *ernel*.zip
+          name: Grass Kernel ${{ matrix.variant }} for ${{ matrix.device }} // ${{ github.ref_name }}
+          tag_name: ${{ github.ref }}
+          body: |
+            Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing hence not recommended)
+            Open an issue with the rom and device used when it doesn't boot and you're sure it's due to the kernel.
+            All are KSU zips, and dirty flashable
+            
+            AOSP and OneUI variants are provided for each device.
