@@ -31,8 +31,8 @@ jobs:
 
       - name: apt update
         run: |
-          sudo apt update
-          sudo apt install bison flex libssl-dev python3 python-is-python3
+          sudo apt -y update
+          sudo apt -y install bison flex libssl-dev python3 python-is-python3
           
       - name: Download clang
         run: |
@@ -44,7 +44,7 @@ jobs:
           git submodule update --remote --init
           python build_kernel.py --aosp --target=${{matrix.device}}
 
-      # - name: Upload kernel
+      # - name: Upload kernel (takes space and sometimes doesn't remove them on deleting artifacts)
       #   uses: actions/upload-artifact@v4
       #   with:
       #     name: GrassKernel_${{matrix.device}}.zip

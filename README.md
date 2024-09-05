@@ -56,6 +56,10 @@ After build the image of the kernel will be in out/arch/arm64/boot/Image
 After a successful build, you can see the scripts/packaging/Grass*.zip archive.
 This is your kernel. Just flash it via TWRP or adb sideload
 
+## Other notes
+
+Check out MrImmortal09's [kernel](https://github.com/MrImmortal09/android_kernel_samsung_universal9611) source for WIP? kali nethunter kernel for exynos 9611
+
 ## Credits
 
 - [roynatech2544](https://github.com/roynatech2544)
