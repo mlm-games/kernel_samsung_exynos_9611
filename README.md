@@ -4,7 +4,7 @@
   <br>
 </h1>
 
-<h4 align="center">A custom kernel for the Exynos9611 devices. Derived from GrassKernel after it was archived...</h4>
+<h4 align="center">A custom kernel for the Exynos-9611 devices. Derived from GrassKernel after it was archived...</h4>
 
 <p align="center">
   <a href="#key-features">Key Features</a> •
@@ -46,7 +46,7 @@ $ bash <(curl https://gist.githubusercontent.com/roynatech2544/0feeeb35a6d1782b1
 # Building kernel is simple, a python script is provided.
 # Options inside parenthesis are optional, Parenthesis' with | between 
 # means you have to provide one of those options inside.
-$ python build_kernel.py (--aosp|--oneui) --target=m31 (--no-ksu) (--allow-dirty)
+$ python build_kernel.py (--aosp|--oneui) --target=m31s (--no-ksu) (--allow-dirty)
 ```
 
 After build the image of the kernel will be in out/arch/arm64/boot/Image
@@ -58,7 +58,7 @@ This is your kernel. Just flash it via TWRP or adb sideload
 
 ## Other notes
 
-Check out MrImmortal09's [kernel](https://github.com/MrImmortal09/android_kernel_samsung_universal9611) source for WIP? kali nethunter kernel for exynos 9611
+Check out MrImmortal09's [kernel](https://github.com/MrImmortal09/android_kernel_samsung_universal9611) source for WIP? kali nethunter kernel for Exynos 9611
 
 ## Credits
 

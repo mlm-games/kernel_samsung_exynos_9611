@@ -40,7 +40,7 @@ jobs:
       - name: Run build
         run: |
           git submodule update --remote --init
-          python build_kernel.py --aosp --target=${{matrix.device}}
+          python build_kernel.py --aosp --target=${{matrix.device}} --allow-dirty
 
 
     - name: Upload to Release        # Github artifact action eats your space even if you delete the artifacts :\ (the K is missing in files as it could change case in future)
@@ -49,9 +49,11 @@ jobs:
       with:
         files: |
           *ernel*.zip
-        name: Unofficial OrangeFox for ${{ inputs.DEVICE_NAME }} // ${{ env.BUILD_DATE }}
-        tag_name: ${{ github.run_id }}
+        name: Grass Kernel ${{ matrix.variant }} for ${{ matrix.device }} // ${{ github.ref_name }}
+        tag_name: ${{ github.ref }}
         body: |
           Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing hence not recommended)
-          Open an issue with the rom and device used when it doesn't boot and your sure it's due to the kernel.
+          Open an issue with the rom and device used when it doesn't boot and you're sure it's due to the kernel.
           All are KSU zips, and dirty flashable
+          
+          AOSP and OneUI variants are provided for each device.
