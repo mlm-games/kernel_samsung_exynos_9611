@@ -6,3 +6,4 @@
 	path = KernelSU
 	url = https://github.com/tiann/KernelSU
 	tag = v0.9.5
+# Git submodules dont support tags or SHAs :/
