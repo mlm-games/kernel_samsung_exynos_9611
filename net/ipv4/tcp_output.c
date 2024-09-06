@@ -3157,6 +3157,7 @@ void tcp_send_fin(struct sock *sk)
 			if (tskb)
 				goto coalesce;
 			return;
+		}
 
 		skb_reserve(skb, MAX_TCP_HEADER);
 		sk_forced_mem_schedule(sk, skb->truesize);
