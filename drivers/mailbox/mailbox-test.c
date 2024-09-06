@@ -16,7 +16,6 @@
 #include <linux/kernel.h>
 #include <linux/mailbox_client.h>
 #include <linux/module.h>
-#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/poll.h>
@@ -44,7 +43,6 @@ struct mbox_test_device {
 	char			*signal;
 	char			*message;
 	spinlock_t		lock;
-	struct mutex		mutex;
 	wait_queue_head_t	waitq;
 	struct fasync_struct	*async_queue;
 };
@@ -101,7 +99,6 @@ static ssize_t mbox_test_message_write(struct file *filp,
 				       size_t count, loff_t *ppos)
 {
 	struct mbox_test_device *tdev = filp->private_data;
-	char *message;
 	void *data;
 	int ret;
 
@@ -117,13 +114,10 @@ static ssize_t mbox_test_message_write(struct file *filp,
 		return -EINVAL;
 	}
 
-	message = kzalloc(MBOX_MAX_MSG_LEN, GFP_KERNEL);
-	if (!message)
+	tdev->message = kzalloc(MBOX_MAX_MSG_LEN, GFP_KERNEL);
+	if (!tdev->message)
 		return -ENOMEM;
 
-	mutex_lock(&tdev->mutex);
-
-	tdev->message = message;
 	ret = copy_from_user(tdev->message, userbuf, count);
 	if (ret) {
 		ret = -EFAULT;
@@ -153,8 +147,6 @@ out:
 	kfree(tdev->signal);
 	kfree(tdev->message);
 	tdev->signal = NULL;
-
-	mutex_unlock(&tdev->mutex);
 
 	return ret < 0 ? ret : count;
 }
@@ -371,24 +363,22 @@ static int mbox_test_probe(struct platform_device *pdev)
 
 	/* It's okay for MMIO to be NULL */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	size = resource_size(res);
 	tdev->tx_mmio = devm_ioremap_resource(&pdev->dev, res);
-	if (PTR_ERR(tdev->tx_mmio) == -EBUSY) {
+	if (PTR_ERR(tdev->tx_mmio) == -EBUSY)
 		/* if reserved area in SRAM, try just ioremap */
-		size = resource_size(res);
 		tdev->tx_mmio = devm_ioremap(&pdev->dev, res->start, size);
-	} else if (IS_ERR(tdev->tx_mmio)) {
+	else if (IS_ERR(tdev->tx_mmio))
 		tdev->tx_mmio = NULL;
-	}
 
 	/* If specified, second reg entry is Rx MMIO */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	size = resource_size(res);
 	tdev->rx_mmio = devm_ioremap_resource(&pdev->dev, res);
-	if (PTR_ERR(tdev->rx_mmio) == -EBUSY) {
-		size = resource_size(res);
+	if (PTR_ERR(tdev->rx_mmio) == -EBUSY)
 		tdev->rx_mmio = devm_ioremap(&pdev->dev, res->start, size);
-	} else if (IS_ERR(tdev->rx_mmio)) {
+	else if (IS_ERR(tdev->rx_mmio))
 		tdev->rx_mmio = tdev->tx_mmio;
-	}
 
 	tdev->tx_channel = mbox_test_request_channel(pdev, "tx");
 	tdev->rx_channel = mbox_test_request_channel(pdev, "rx");
@@ -404,7 +394,6 @@ static int mbox_test_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, tdev);
 
 	spin_lock_init(&tdev->lock);
-	mutex_init(&tdev->mutex);
 
 	if (tdev->rx_channel) {
 		tdev->rx_buffer = devm_kzalloc(&pdev->dev,

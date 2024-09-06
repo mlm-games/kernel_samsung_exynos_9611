@@ -407,8 +407,8 @@ static const struct panel_desc ampire_am_480272h3tmqw_t01h = {
 	.num_modes = 1,
 	.bpc = 8,
 	.size = {
-		.width = 99,
-		.height = 58,
+		.width = 105,
+		.height = 67,
 	},
 	.bus_format = MEDIA_BUS_FMT_RGB888_1X24,
 };
@@ -614,9 +614,9 @@ static const struct panel_desc auo_g133han01 = {
 static const struct display_timing auo_g185han01_timings = {
 	.pixelclock = { 120000000, 144000000, 175000000 },
 	.hactive = { 1920, 1920, 1920 },
-	.hfront_porch = { 36, 120, 148 },
-	.hback_porch = { 24, 88, 108 },
-	.hsync_len = { 20, 48, 64 },
+	.hfront_porch = { 18, 60, 74 },
+	.hback_porch = { 12, 44, 54 },
+	.hsync_len = { 10, 24, 32 },
 	.vactive = { 1080, 1080, 1080 },
 	.vfront_porch = { 6, 10, 40 },
 	.vback_porch = { 2, 5, 20 },
@@ -1062,13 +1062,13 @@ static const struct panel_desc innolux_at070tn92 = {
 static const struct display_timing innolux_g101ice_l01_timing = {
 	.pixelclock = { 60400000, 71100000, 74700000 },
 	.hactive = { 1280, 1280, 1280 },
-	.hfront_porch = { 30, 60, 70 },
-	.hback_porch = { 30, 60, 70 },
-	.hsync_len = { 22, 40, 60 },
+	.hfront_porch = { 41, 80, 100 },
+	.hback_porch = { 40, 79, 99 },
+	.hsync_len = { 1, 1, 1 },
 	.vactive = { 800, 800, 800 },
-	.vfront_porch = { 3, 8, 14 },
-	.vback_porch = { 3, 8, 14 },
-	.vsync_len = { 4, 7, 12 },
+	.vfront_porch = { 5, 11, 14 },
+	.vback_porch = { 4, 11, 14 },
+	.vsync_len = { 1, 1, 1 },
 	.flags = DISPLAY_FLAGS_DE_HIGH,
 };
 
@@ -1253,7 +1253,7 @@ static const struct drm_display_mode lg_lb070wv8_mode = {
 static const struct panel_desc lg_lb070wv8 = {
 	.modes = &lg_lb070wv8_mode,
 	.num_modes = 1,
-	.bpc = 8,
+	.bpc = 16,
 	.size = {
 		.width = 151,
 		.height = 91,
@@ -2371,14 +2371,7 @@ static int panel_simple_dsi_probe(struct mipi_dsi_device *dsi)
 	dsi->format = desc->format;
 	dsi->lanes = desc->lanes;
 
-	err = mipi_dsi_attach(dsi);
-	if (err) {
-		struct panel_simple *panel = dev_get_drvdata(&dsi->dev);
-
-		drm_panel_remove(&panel->base);
-	}
-
-	return err;
+	return mipi_dsi_attach(dsi);
 }
 
 static int panel_simple_dsi_remove(struct mipi_dsi_device *dsi)

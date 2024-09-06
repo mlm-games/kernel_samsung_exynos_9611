@@ -80,16 +80,12 @@ module_param(srpt_srq_size, int, 0444);
 MODULE_PARM_DESC(srpt_srq_size,
 		 "Shared receive queue (SRQ) size.");
 
-static int srpt_set_u64_x(const char *buffer, struct kernel_param *kp)
-{
-	return kstrtou64(buffer, 16, (u64 *)kp->arg);
-}
-static int srpt_get_u64_x(char *buffer, struct kernel_param *kp)
+static int srpt_get_u64_x(char *buffer, const struct kernel_param *kp)
 {
 	return sprintf(buffer, "0x%016llx", *(u64 *)kp->arg);
 }
-module_param_call(srpt_service_guid, srpt_set_u64_x, srpt_get_u64_x,
-		  &srpt_service_guid, 0444);
+module_param_call(srpt_service_guid, NULL, srpt_get_u64_x, &srpt_service_guid,
+		  0444);
 MODULE_PARM_DESC(srpt_service_guid,
 		 "Using this value for ioc_guid, id_ext, and cm_listen_id"
 		 " instead of using the node_guid of the first HCA.");
@@ -200,10 +196,8 @@ static const char *get_ch_state_name(enum rdma_ch_state s)
 /**
  * srpt_qp_event() - QP event callback function.
  */
-static void srpt_qp_event(struct ib_event *event, void *ptr)
+static void srpt_qp_event(struct ib_event *event, struct srpt_rdma_ch *ch)
 {
-	struct srpt_rdma_ch *ch = ptr;
-
 	pr_debug("QP event %d on cm_id=%p sess_name=%s state=%d\n",
 		 event->event, ch->cm_id, ch->sess_name, ch->state);
 
@@ -1252,11 +1246,9 @@ static int srpt_build_cmd_rsp(struct srpt_rdma_ch *ch,
 			      struct srpt_send_ioctx *ioctx, u64 tag,
 			      int status)
 {
-	struct se_cmd *cmd = &ioctx->cmd;
 	struct srp_rsp *srp_rsp;
 	const u8 *sense_data;
 	int sense_data_len, max_sense_len;
-	u32 resid = cmd->residual_count;
 
 	/*
 	 * The lowest bit of all SAM-3 status codes is zero (see also
@@ -1277,28 +1269,6 @@ static int srpt_build_cmd_rsp(struct srpt_rdma_ch *ch,
 		cpu_to_be32(1 + atomic_xchg(&ch->req_lim_delta, 0));
 	srp_rsp->tag = tag;
 	srp_rsp->status = status;
-
-	if (cmd->se_cmd_flags & SCF_UNDERFLOW_BIT) {
-		if (cmd->data_direction == DMA_TO_DEVICE) {
-			/* residual data from an underflow write */
-			srp_rsp->flags = SRP_RSP_FLAG_DOUNDER;
-			srp_rsp->data_out_res_cnt = cpu_to_be32(resid);
-		} else if (cmd->data_direction == DMA_FROM_DEVICE) {
-			/* residual data from an underflow read */
-			srp_rsp->flags = SRP_RSP_FLAG_DIUNDER;
-			srp_rsp->data_in_res_cnt = cpu_to_be32(resid);
-		}
-	} else if (cmd->se_cmd_flags & SCF_OVERFLOW_BIT) {
-		if (cmd->data_direction == DMA_TO_DEVICE) {
-			/* residual data from an overflow write */
-			srp_rsp->flags = SRP_RSP_FLAG_DOOVER;
-			srp_rsp->data_out_res_cnt = cpu_to_be32(resid);
-		} else if (cmd->data_direction == DMA_FROM_DEVICE) {
-			/* residual data from an overflow read */
-			srp_rsp->flags = SRP_RSP_FLAG_DIOVER;
-			srp_rsp->data_in_res_cnt = cpu_to_be32(resid);
-		}
-	}
 
 	if (sense_data_len) {
 		BUILD_BUG_ON(MIN_MAX_RSP_SIZE <= sizeof(*srp_rsp));
@@ -1669,7 +1639,8 @@ retry:
 	}
 
 	qp_init->qp_context = (void *)ch;
-	qp_init->event_handler = srpt_qp_event;
+	qp_init->event_handler
+		= (void(*)(struct ib_event *, void*))srpt_qp_event;
 	qp_init->send_cq = ch->cq;
 	qp_init->recv_cq = ch->cq;
 	qp_init->srq = sdev->srq;
@@ -2410,19 +2381,8 @@ static void srpt_queue_tm_rsp(struct se_cmd *cmd)
 	srpt_queue_response(cmd);
 }
 
-/*
- * This function is called for aborted commands if no response is sent to the
- * initiator. Make sure that the credits freed by aborting a command are
- * returned to the initiator the next time a response is sent by incrementing
- * ch->req_lim_delta.
- */
 static void srpt_aborted_task(struct se_cmd *cmd)
 {
-	struct srpt_send_ioctx *ioctx = container_of(cmd,
-				struct srpt_send_ioctx, cmd);
-	struct srpt_rdma_ch *ch = ioctx->ch;
-
-	atomic_inc(&ch->req_lim_delta);
 }
 
 static int srpt_queue_status(struct se_cmd *cmd)

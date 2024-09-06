@@ -343,7 +343,6 @@ static int lm3639_probe(struct i2c_client *client,
 	}
 
 	/* backlight */
-	memset(&props, 0, sizeof(struct backlight_properties));
 	props.type = BACKLIGHT_RAW;
 	props.brightness = pdata->init_brt_led;
 	props.max_brightness = pdata->max_brt_led;
@@ -401,8 +400,10 @@ static int lm3639_remove(struct i2c_client *client)
 
 	regmap_write(pchip->regmap, REG_ENABLE, 0x00);
 
-	led_classdev_unregister(&pchip->cdev_torch);
-	led_classdev_unregister(&pchip->cdev_flash);
+	if (&pchip->cdev_torch)
+		led_classdev_unregister(&pchip->cdev_torch);
+	if (&pchip->cdev_flash)
+		led_classdev_unregister(&pchip->cdev_flash);
 	if (pchip->bled)
 		device_remove_file(&(pchip->bled->dev), &dev_attr_bled_mode);
 	return 0;

@@ -269,15 +269,6 @@ void cfg80211_conn_work(struct work_struct *work)
 	rtnl_unlock();
 }
 
-static void cfg80211_step_auth_next(struct cfg80211_conn *conn,
-				    struct cfg80211_bss *bss)
-{
-	memcpy(conn->bssid, bss->bssid, ETH_ALEN);
-	conn->params.bssid = conn->bssid;
-	conn->params.channel = bss->channel;
-	conn->state = CFG80211_CONN_AUTHENTICATE_NEXT;
-}
-
 /* Returned bss is reference counted and must be cleaned up appropriately. */
 static struct cfg80211_bss *cfg80211_get_conn_bss(struct wireless_dev *wdev)
 {
@@ -295,7 +286,10 @@ static struct cfg80211_bss *cfg80211_get_conn_bss(struct wireless_dev *wdev)
 	if (!bss)
 		return NULL;
 
-	cfg80211_step_auth_next(wdev->conn, bss);
+	memcpy(wdev->conn->bssid, bss->bssid, ETH_ALEN);
+	wdev->conn->params.bssid = wdev->conn->bssid;
+	wdev->conn->params.channel = bss->channel;
+	wdev->conn->state = CFG80211_CONN_AUTHENTICATE_NEXT;
 	schedule_work(&rdev->conn_work);
 
 	return bss;
@@ -536,7 +530,7 @@ static int cfg80211_sme_connect(struct wireless_dev *wdev,
 		cfg80211_sme_free(wdev);
 	}
 
-	if (wdev->conn)
+	if (WARN_ON(wdev->conn))
 		return -EINPROGRESS;
 
 	wdev->conn = kzalloc(sizeof(*wdev->conn), GFP_KERNEL);
@@ -574,12 +568,7 @@ static int cfg80211_sme_connect(struct wireless_dev *wdev,
 	wdev->conn->params.ssid_len = wdev->ssid_len;
 
 	/* see if we have the bss already */
-	bss = cfg80211_get_bss(wdev->wiphy, wdev->conn->params.channel,
-			       wdev->conn->params.bssid,
-			       wdev->conn->params.ssid,
-			       wdev->conn->params.ssid_len,
-			       wdev->conn_bss_type,
-			       IEEE80211_PRIVACY(wdev->conn->params.privacy));
+	bss = cfg80211_get_conn_bss(wdev);
 
 	if (prev_bssid) {
 		memcpy(wdev->conn->prev_bssid, prev_bssid, ETH_ALEN);
@@ -590,7 +579,6 @@ static int cfg80211_sme_connect(struct wireless_dev *wdev,
 	if (bss) {
 		enum nl80211_timeout_reason treason;
 
-		cfg80211_step_auth_next(wdev->conn, bss);
 		err = cfg80211_conn_do_work(wdev, &treason);
 		cfg80211_put_bss(wdev->wiphy, bss);
 	} else {
@@ -654,15 +642,11 @@ static bool cfg80211_is_all_idle(void)
 	 * All devices must be idle as otherwise if you are actively
 	 * scanning some new beacon hints could be learned and would
 	 * count as new regulatory hints.
-	 * Also if there is any other active beaconing interface we
-	 * need not issue a disconnect hint and reset any info such
-	 * as chan dfs state, etc.
 	 */
 	list_for_each_entry(rdev, &cfg80211_rdev_list, list) {
 		list_for_each_entry(wdev, &rdev->wiphy.wdev_list, list) {
 			wdev_lock(wdev);
-			if (wdev->conn || wdev->current_bss ||
-			    cfg80211_beaconing_iface_active(wdev))
+			if (wdev->conn || wdev->current_bss)
 				is_all_idle = false;
 			wdev_unlock(wdev);
 		}
@@ -679,7 +663,7 @@ static void disconnect_work(struct work_struct *work)
 	rtnl_unlock();
 }
 
-DECLARE_WORK(cfg80211_disconnect_work, disconnect_work);
+static DECLARE_WORK(cfg80211_disconnect_work, disconnect_work);
 
 
 /*
@@ -1140,13 +1124,6 @@ int cfg80211_connect(struct cfg80211_registered_device *rdev,
 	} else {
 		if (WARN_ON(connkeys))
 			return -EINVAL;
-
-		/* connect can point to wdev->wext.connect which
-		 * can hold key data from a previous connection
-		 */
-		connect->key = NULL;
-		connect->key_len = 0;
-		connect->key_idx = 0;
 	}
 
 	wdev->connect_keys = connkeys;

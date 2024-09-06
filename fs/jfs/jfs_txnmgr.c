@@ -367,11 +367,6 @@ tid_t txBegin(struct super_block *sb, int flag)
 	jfs_info("txBegin: flag = 0x%x", flag);
 	log = JFS_SBI(sb)->log;
 
-	if (!log) {
-		jfs_error(sb, "read-only filesystem\n");
-		return 0;
-	}
-
 	TXN_LOCK();
 
 	INCREMENT(TxStat.txBegin);
@@ -1933,7 +1928,8 @@ static void xtLog(struct jfs_log * log, struct tblock * tblk, struct lrd * lrd,
 	 * header ?
 	 */
 	if (tlck->type & tlckTRUNCATE) {
-		pxd_t pxd;	/* truncated extent of xad */
+		/* This odd declaration suppresses a bogus gcc warning */
+		pxd_t pxd = pxd;	/* truncated extent of xad */
 		int twm;
 
 		/*

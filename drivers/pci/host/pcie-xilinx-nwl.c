@@ -10,7 +10,6 @@
  * (at your option) any later version.
  */
 
-#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -172,7 +171,6 @@ struct nwl_pcie {
 	u8 root_busno;
 	struct nwl_msi msi;
 	struct irq_domain *legacy_irq_domain;
-	struct clk *clk;
 	raw_spinlock_t leg_mask_lock;
 };
 
@@ -487,12 +485,14 @@ static int nwl_irq_domain_alloc(struct irq_domain *domain, unsigned int virq,
 	int i;
 
 	mutex_lock(&msi->lock);
-	bit = bitmap_find_free_region(msi->bitmap, INT_PCI_MSI_NR,
-				      get_count_order(nr_irqs));
-	if (bit < 0) {
+	bit = bitmap_find_next_zero_area(msi->bitmap, INT_PCI_MSI_NR, 0,
+					 nr_irqs, 0);
+	if (bit >= INT_PCI_MSI_NR) {
 		mutex_unlock(&msi->lock);
 		return -ENOSPC;
 	}
+
+	bitmap_set(msi->bitmap, bit, nr_irqs);
 
 	for (i = 0; i < nr_irqs; i++) {
 		irq_domain_set_info(domain, virq + i, bit + i, &nwl_irq_chip,
@@ -511,8 +511,7 @@ static void nwl_irq_domain_free(struct irq_domain *domain, unsigned int virq,
 	struct nwl_msi *msi = &pcie->msi;
 
 	mutex_lock(&msi->lock);
-	bitmap_release_region(msi->bitmap, data->hwirq,
-			      get_count_order(nr_irqs));
+	bitmap_clear(msi->bitmap, data->hwirq, nr_irqs);
 	mutex_unlock(&msi->lock);
 }
 
@@ -851,16 +850,6 @@ static int nwl_pcie_probe(struct platform_device *pdev)
 	err = nwl_pcie_parse_dt(pcie, pdev);
 	if (err) {
 		dev_err(dev, "Parsing DT failed\n");
-		return err;
-	}
-
-	pcie->clk = devm_clk_get(dev, NULL);
-	if (IS_ERR(pcie->clk))
-		return PTR_ERR(pcie->clk);
-
-	err = clk_prepare_enable(pcie->clk);
-	if (err) {
-		dev_err(dev, "can't enable PCIe ref clock\n");
 		return err;
 	}
 

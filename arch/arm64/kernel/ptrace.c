@@ -624,13 +624,6 @@ static int gpr_set(struct task_struct *target, const struct user_regset *regset,
 	return 0;
 }
 
-static int fpr_active(struct task_struct *target, const struct user_regset *regset)
-{
-	if (!system_supports_fpsimd())
-		return -ENODEV;
-	return regset->n;
-}
-
 /*
  * TODO: update fp accessors for lazy context switching (sync/flush hwstate)
  */
@@ -640,9 +633,6 @@ static int fpr_get(struct task_struct *target, const struct user_regset *regset,
 {
 	struct user_fpsimd_state *uregs;
 	uregs = &target->thread.fpsimd_state.user_fpsimd;
-
-	if (!system_supports_fpsimd())
-		return -EINVAL;
 
 	if (target == current)
 		fpsimd_preserve_current_state();
@@ -657,9 +647,6 @@ static int fpr_set(struct task_struct *target, const struct user_regset *regset,
 	int ret;
 	struct user_fpsimd_state newstate =
 		target->thread.fpsimd_state.user_fpsimd;
-
-	if (!system_supports_fpsimd())
-		return -EINVAL;
 
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf, &newstate, 0, -1);
 	if (ret)
@@ -753,7 +740,6 @@ static const struct user_regset aarch64_regsets[] = {
 		 */
 		.size = sizeof(u32),
 		.align = sizeof(u32),
-		.active = fpr_active,
 		.get = fpr_get,
 		.set = fpr_set
 	},
@@ -833,7 +819,6 @@ static int compat_gpr_get(struct task_struct *target,
 			break;
 		case 16:
 			reg = task_pt_regs(target)->pstate;
-			reg = pstate_to_compat_psr(reg);
 			break;
 		case 17:
 			reg = task_pt_regs(target)->orig_x0;
@@ -901,7 +886,6 @@ static int compat_gpr_set(struct task_struct *target,
 			newregs.pc = reg;
 			break;
 		case 16:
-			reg = compat_psr_to_pstate(reg);
 			newregs.pstate = reg;
 			break;
 		case 17:
@@ -929,9 +913,6 @@ static int compat_vfp_get(struct task_struct *target,
 	struct user_fpsimd_state *uregs;
 	compat_ulong_t fpscr;
 	int ret, vregs_end_pos;
-
-	if (!system_supports_fpsimd())
-		return -EINVAL;
 
 	uregs = &target->thread.fpsimd_state.user_fpsimd;
 
@@ -965,9 +946,6 @@ static int compat_vfp_set(struct task_struct *target,
 	struct user_fpsimd_state *uregs;
 	compat_ulong_t fpscr;
 	int ret, vregs_end_pos;
-
-	if (!system_supports_fpsimd())
-		return -EINVAL;
 
 	uregs = &target->thread.fpsimd_state.user_fpsimd;
 
@@ -1026,7 +1004,6 @@ static const struct user_regset aarch32_regsets[] = {
 		.n = VFP_STATE_SIZE / sizeof(compat_ulong_t),
 		.size = sizeof(compat_ulong_t),
 		.align = sizeof(compat_ulong_t),
-		.active = fpr_active,
 		.get = compat_vfp_get,
 		.set = compat_vfp_set
 	},
@@ -1496,8 +1473,8 @@ static int valid_native_regs(struct user_pt_regs *regs)
  */
 int valid_user_regs(struct user_pt_regs *regs, struct task_struct *task)
 {
-	/* https://lore.kernel.org/lkml/20191118131525.GA4180@willie-the-truck */
-	user_regs_reset_single_step(regs, task);
+	if (!test_tsk_thread_flag(task, TIF_SINGLESTEP))
+		regs->pstate &= ~DBG_SPSR_SS;
 
 	if (is_compat_thread(task_thread_info(task)))
 		return valid_compat_regs(regs);

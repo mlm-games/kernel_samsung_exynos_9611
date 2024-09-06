@@ -452,7 +452,6 @@ static int queue_setup(struct vb2_queue *q,
 
 static int buffer_prepare(struct vb2_buffer *vb)
 {
-	int ret;
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct cx8800_dev *dev = vb->vb2_queue->drv_priv;
 	struct cx88_core *core = dev->core;
@@ -467,35 +466,35 @@ static int buffer_prepare(struct vb2_buffer *vb)
 
 	switch (core->field) {
 	case V4L2_FIELD_TOP:
-		ret = cx88_risc_buffer(dev->pci, &buf->risc,
-				       sgt->sgl, 0, UNSET,
-				       buf->bpl, 0, core->height);
+		cx88_risc_buffer(dev->pci, &buf->risc,
+				 sgt->sgl, 0, UNSET,
+				 buf->bpl, 0, core->height);
 		break;
 	case V4L2_FIELD_BOTTOM:
-		ret = cx88_risc_buffer(dev->pci, &buf->risc,
-				       sgt->sgl, UNSET, 0,
-				       buf->bpl, 0, core->height);
+		cx88_risc_buffer(dev->pci, &buf->risc,
+				 sgt->sgl, UNSET, 0,
+				 buf->bpl, 0, core->height);
 		break;
 	case V4L2_FIELD_SEQ_TB:
-		ret = cx88_risc_buffer(dev->pci, &buf->risc,
-				       sgt->sgl,
-				       0, buf->bpl * (core->height >> 1),
-				       buf->bpl, 0,
-				       core->height >> 1);
+		cx88_risc_buffer(dev->pci, &buf->risc,
+				 sgt->sgl,
+				 0, buf->bpl * (core->height >> 1),
+				 buf->bpl, 0,
+				 core->height >> 1);
 		break;
 	case V4L2_FIELD_SEQ_BT:
-		ret = cx88_risc_buffer(dev->pci, &buf->risc,
-				       sgt->sgl,
-				       buf->bpl * (core->height >> 1), 0,
-				       buf->bpl, 0,
-				       core->height >> 1);
+		cx88_risc_buffer(dev->pci, &buf->risc,
+				 sgt->sgl,
+				 buf->bpl * (core->height >> 1), 0,
+				 buf->bpl, 0,
+				 core->height >> 1);
 		break;
 	case V4L2_FIELD_INTERLACED:
 	default:
-		ret = cx88_risc_buffer(dev->pci, &buf->risc,
-				       sgt->sgl, 0, buf->bpl,
-				       buf->bpl, buf->bpl,
-				       core->height >> 1);
+		cx88_risc_buffer(dev->pci, &buf->risc,
+				 sgt->sgl, 0, buf->bpl,
+				 buf->bpl, buf->bpl,
+				 core->height >> 1);
 		break;
 	}
 	dprintk(2,
@@ -503,7 +502,7 @@ static int buffer_prepare(struct vb2_buffer *vb)
 		buf, buf->vb.vb2_buf.index,
 		core->width, core->height, dev->fmt->depth, dev->fmt->name,
 		(unsigned long)buf->risc.dma);
-	return ret;
+	return 0;
 }
 
 static void buffer_finish(struct vb2_buffer *vb)
@@ -1311,7 +1310,7 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 	core = cx88_core_get(dev->pci);
 	if (!core) {
 		err = -EINVAL;
-		goto fail_disable;
+		goto fail_free;
 	}
 	dev->core = core;
 
@@ -1357,7 +1356,7 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 				       cc->step, cc->default_value);
 		if (!vc) {
 			err = core->audio_hdl.error;
-			goto fail_irq;
+			goto fail_core;
 		}
 		vc->priv = (void *)cc;
 	}
@@ -1371,7 +1370,7 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 				       cc->step, cc->default_value);
 		if (!vc) {
 			err = core->video_hdl.error;
-			goto fail_irq;
+			goto fail_core;
 		}
 		vc->priv = (void *)cc;
 		if (vc->id == V4L2_CID_CHROMA_AGC)
@@ -1534,14 +1533,11 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 
 fail_unreg:
 	cx8800_unregister_video(dev);
-	mutex_unlock(&core->lock);
-fail_irq:
 	free_irq(pci_dev->irq, dev);
+	mutex_unlock(&core->lock);
 fail_core:
 	core->v4ldev = NULL;
 	cx88_core_put(core, dev->pci);
-fail_disable:
-	pci_disable_device(pci_dev);
 fail_free:
 	kfree(dev);
 	return err;

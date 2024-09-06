@@ -24,6 +24,7 @@
 #include <linux/sched/mm.h>
 #include <linux/sched/hotplug.h>
 #include <linux/sched/task_stack.h>
+#include <linux/sched/clock.h>
 #include <linux/interrupt.h>
 #include <linux/cache.h>
 #include <linux/profile.h>
@@ -40,6 +41,7 @@
 #include <linux/of.h>
 #include <linux/irq_work.h>
 #include <linux/kexec.h>
+#include <linux/debug-snapshot.h>
 
 #include <asm/alternative.h>
 #include <asm/atomic.h>
@@ -57,6 +59,7 @@
 #include <asm/tlbflush.h>
 #include <asm/ptrace.h>
 #include <asm/virt.h>
+#include <soc/samsung/exynos-sdm.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/ipi.h>
@@ -106,7 +109,6 @@ static int boot_secondary(unsigned int cpu, struct task_struct *idle)
 }
 
 static DECLARE_COMPLETION(cpu_running);
-bool va52mismatch __ro_after_init;
 
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
@@ -136,15 +138,10 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 
 		if (!cpu_online(cpu)) {
 			pr_crit("CPU%u: failed to come online\n", cpu);
-
-			if (IS_ENABLED(CONFIG_ARM64_52BIT_VA) && va52mismatch)
-				pr_crit("CPU%u: does not support 52-bit VAs\n", cpu);
-
 			ret = -EIO;
 		}
 	} else {
 		pr_err("CPU%u: failed to boot: %d\n", cpu, ret);
-		return ret;
 	}
 
 	secondary_data.task = NULL;
@@ -320,7 +317,7 @@ void __cpu_die(unsigned int cpu)
 		pr_crit("CPU%u: cpu didn't die\n", cpu);
 		return;
 	}
-	pr_notice("CPU%u: shutdown\n", cpu);
+	pr_debug("CPU%u: shutdown\n", cpu);
 
 	/*
 	 * Now that the dying CPU is beyond the point of no return w.r.t.
@@ -462,6 +459,23 @@ static bool __init is_mpidr_duplicate(unsigned int cpu, u64 hwid)
 	return false;
 }
 
+static unsigned long cpu_offmask;
+
+static int __init cpu_boot_masking(char *s)
+{
+	long mask;
+	int ret;
+
+	ret = kstrtol(s, 16, &mask);
+	if (ret)
+		return -EINVAL;
+
+	cpu_offmask = (unsigned long)mask;
+
+	return 0;
+}
+early_param("cpu_offmask", cpu_boot_masking);
+
 /*
  * Initialize cpu operations for a logical cpu and
  * set it in the possible mask on success
@@ -473,6 +487,11 @@ static int __init smp_cpu_setup(int cpu)
 
 	if (cpu_ops[cpu]->cpu_init(cpu))
 		return -ENODEV;
+
+	if (test_bit(cpu, &cpu_offmask)) {
+		pr_err("%s: CPU%d OFF by cpu offmask\n",__func__,cpu);
+		return -ENODEV;
+	}
 
 	set_cpu_possible(cpu, true);
 
@@ -792,14 +811,28 @@ void arch_irq_work_raise(void)
 }
 #endif
 
+static DEFINE_RAW_SPINLOCK(stop_lock);
+
 /*
  * ipi_cpu_stop - handle IPI from smp_send_stop()
  */
-static void ipi_cpu_stop(unsigned int cpu)
+static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
 {
+	pr_crit("CPU%u: stopping\n", cpu);
+
+	if (system_state == SYSTEM_BOOTING ||
+	    system_state == SYSTEM_RUNNING) {
+		raw_spin_lock(&stop_lock);
+		dump_stack();
+		raw_spin_unlock(&stop_lock);
+	}
+
 	set_cpu_online(cpu, false);
 
 	local_irq_disable();
+
+	dbg_snapshot_save_context(regs);
+	exynos_sdm_flush_secdram();
 
 	while (1)
 		cpu_relax();
@@ -835,11 +868,15 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 {
 	unsigned int cpu = smp_processor_id();
 	struct pt_regs *old_regs = set_irq_regs(regs);
+	unsigned long long start_time;
 
 	if ((unsigned)ipinr < NR_IPI) {
 		trace_ipi_entry_rcuidle(ipi_types[ipinr]);
 		__inc_irq_stat(cpu, ipi_irqs[ipinr]);
 	}
+
+	dbg_snapshot_irq_var(start_time);
+	dbg_snapshot_irq(ipinr, handle_IPI, NULL, 0, DSS_FLAG_IN);
 
 	switch (ipinr) {
 	case IPI_RESCHEDULE:
@@ -848,13 +885,18 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 
 	case IPI_CALL_FUNC:
 		irq_enter();
+		/*
+		 * dbg_snapshot_irq function is into
+		 * generic_smp_call_function_interrupt()
+		 *
+		 */
 		generic_smp_call_function_interrupt();
 		irq_exit();
 		break;
 
 	case IPI_CPU_STOP:
 		irq_enter();
-		ipi_cpu_stop(cpu);
+		ipi_cpu_stop(cpu, regs);
 		irq_exit();
 		break;
 
@@ -898,6 +940,9 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 
 	if ((unsigned)ipinr < NR_IPI)
 		trace_ipi_exit_rcuidle(ipi_types[ipinr]);
+
+	dbg_snapshot_irq(ipinr, handle_IPI, NULL, start_time, DSS_FLAG_OUT);
+
 	set_irq_regs(old_regs);
 }
 
@@ -913,38 +958,36 @@ void tick_broadcast(const struct cpumask *mask)
 }
 #endif
 
-/*
- * The number of CPUs online, not counting this CPU (which may not be
- * fully online and so not counted in num_online_cpus()).
- */
-static inline unsigned int num_other_online_cpus(void)
-{
-	unsigned int this_cpu_online = cpu_online(smp_processor_id());
-
-	return num_online_cpus() - this_cpu_online;
-}
+static const char *system_state_show[SYSTEM_END] = {
+	"SYSTEM_BOOTING",
+	"SYSTEM_SCHEDULING",
+	"SYSTEM_RUNNING",
+	"SYSTEM_HALT",
+	"SYSTEM_POWER_OFF",
+	"SYSTEM_RESTART",
+};
 
 void smp_send_stop(void)
 {
 	unsigned long timeout;
 
-	if (num_other_online_cpus()) {
+	if (num_online_cpus() > 1) {
 		cpumask_t mask;
 
 		cpumask_copy(&mask, cpu_online_mask);
 		cpumask_clear_cpu(smp_processor_id(), &mask);
 
-		if (system_state <= SYSTEM_RUNNING)
-			pr_crit("SMP: stopping secondary CPUs\n");
+		pr_crit("SMP: stopping secondary CPUs : %s\n",
+				system_state_show[system_state]);
 		smp_cross_call(&mask, IPI_CPU_STOP);
 	}
 
 	/* Wait up to one second for other CPUs to stop */
 	timeout = USEC_PER_SEC;
-	while (num_other_online_cpus() && timeout--)
+	while (num_online_cpus() > 1 && timeout--)
 		udelay(1);
 
-	if (num_other_online_cpus())
+	if (num_online_cpus() > 1)
 		pr_warning("SMP: failed to stop secondary CPUs %*pbl\n",
 			   cpumask_pr_args(cpu_online_mask));
 }
@@ -965,17 +1008,13 @@ void crash_smp_send_stop(void)
 
 	cpus_stopped = 1;
 
-	/*
-	 * If this cpu is the only one alive at this point in time, online or
-	 * not, there are no stop messages to be sent around, so just back out.
-	 */
-	if (num_other_online_cpus() == 0)
+	if (num_online_cpus() == 1)
 		return;
 
 	cpumask_copy(&mask, cpu_online_mask);
 	cpumask_clear_cpu(smp_processor_id(), &mask);
 
-	atomic_set(&waiting_for_crash_ipi, num_other_online_cpus());
+	atomic_set(&waiting_for_crash_ipi, num_online_cpus() - 1);
 
 	pr_crit("SMP: stopping secondary CPUs\n");
 	smp_cross_call(&mask, IPI_CPU_CRASH_STOP);

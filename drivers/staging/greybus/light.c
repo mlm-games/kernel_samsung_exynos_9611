@@ -103,15 +103,15 @@ static struct led_classdev *get_channel_cdev(struct gb_channel *channel)
 static struct gb_channel *get_channel_from_mode(struct gb_light *light,
 						u32 mode)
 {
-	struct gb_channel *channel;
+	struct gb_channel *channel = NULL;
 	int i;
 
 	for (i = 0; i < light->channels_count; i++) {
 		channel = &light->channels[i];
-		if (channel->mode == mode)
-			return channel;
+		if (channel && channel->mode == mode)
+			break;
 	}
-	return NULL;
+	return channel;
 }
 
 static int __gb_lights_flash_intensity_set(struct gb_channel *channel,
@@ -1033,8 +1033,7 @@ static int gb_lights_light_config(struct gb_lights *glights, u8 id)
 
 	light->channels_count = conf.channel_count;
 	light->name = kstrndup(conf.name, NAMES_MAX, GFP_KERNEL);
-	if (!light->name)
-		return -ENOMEM;
+
 	light->channels = kcalloc(light->channels_count,
 				  sizeof(struct gb_channel), GFP_KERNEL);
 	if (!light->channels)
@@ -1104,21 +1103,21 @@ static void gb_lights_channel_release(struct gb_channel *channel)
 static void gb_lights_light_release(struct gb_light *light)
 {
 	int i;
+	int count;
 
 	light->ready = false;
 
+	count = light->channels_count;
+
 	if (light->has_flash)
 		gb_lights_light_v4l2_unregister(light);
-	light->has_flash = false;
 
-	for (i = 0; i < light->channels_count; i++)
+	for (i = 0; i < count; i++) {
 		gb_lights_channel_release(&light->channels[i]);
-	light->channels_count = 0;
-
+		light->channels_count--;
+	}
 	kfree(light->channels);
-	light->channels = NULL;
 	kfree(light->name);
-	light->name = NULL;
 }
 
 static void gb_lights_release(struct gb_lights *glights)

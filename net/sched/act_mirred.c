@@ -181,7 +181,7 @@ static int tcf_mirred(struct sk_buff *skb, const struct tc_action *a,
 		goto out;
 	}
 
-	if (unlikely(!(dev->flags & IFF_UP)) || !netif_carrier_ok(dev)) {
+	if (unlikely(!(dev->flags & IFF_UP))) {
 		net_notice_ratelimited("tc mirred to Houston: device %s is down\n",
 				       dev->name);
 		goto out;
@@ -371,11 +371,7 @@ static int __init mirred_init_module(void)
 		return err;
 
 	pr_info("Mirror/redirect action on\n");
-	err = tcf_register_action(&act_mirred_ops, &mirred_net_ops);
-	if (err)
-		unregister_netdevice_notifier(&mirred_device_notifier);
-
-	return err;
+	return tcf_register_action(&act_mirred_ops, &mirred_net_ops);
 }
 
 static void __exit mirred_cleanup_module(void)

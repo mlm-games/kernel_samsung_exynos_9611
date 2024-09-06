@@ -730,6 +730,9 @@ err:
  * @file_priv: drm file-private structure
  *
  * Open an object using the global name, returning a handle and the size.
+ *
+ * This handle (of course) holds a reference to the object, so the object
+ * will not go away until the handle is deleted.
  */
 int
 drm_gem_open_ioctl(struct drm_device *dev, void *data,
@@ -754,15 +757,14 @@ drm_gem_open_ioctl(struct drm_device *dev, void *data,
 
 	/* drm_gem_handle_create_tail unlocks dev->object_name_lock. */
 	ret = drm_gem_handle_create_tail(file_priv, obj, &handle);
+	drm_gem_object_put_unlocked(obj);
 	if (ret)
-		goto err;
+		return ret;
 
 	args->handle = handle;
 	args->size = obj->size;
 
-err:
-	drm_gem_object_put_unlocked(obj);
-	return ret;
+	return 0;
 }
 
 /**
@@ -1031,15 +1033,6 @@ int drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 	if (!drm_vma_node_is_allowed(node, priv)) {
 		drm_gem_object_put_unlocked(obj);
 		return -EACCES;
-	}
-
-	if (node->readonly) {
-		if (vma->vm_flags & VM_WRITE) {
-			drm_gem_object_put_unlocked(obj);
-			return -EINVAL;
-		}
-
-		vma->vm_flags &= ~VM_MAYWRITE;
 	}
 
 	ret = drm_gem_mmap_obj(obj, drm_vma_node_size(node) << PAGE_SHIFT,

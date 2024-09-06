@@ -33,7 +33,7 @@
 
 #define ERR_BYTE		0xFF /* Value returned for read
 					bytes when read failed	*/
-#define IFC_TIMEOUT_MSECS	1000 /* Maximum timeout to wait
+#define IFC_TIMEOUT_MSECS	500  /* Maximum number of mSecs to wait
 					for IFC NAND Machine	*/
 
 struct fsl_ifc_ctrl;
@@ -927,7 +927,7 @@ static int fsl_ifc_chip_remove(struct fsl_ifc_mtd *priv)
 {
 	struct mtd_info *mtd = nand_to_mtd(&priv->chip);
 
-	nand_release(&priv->chip);
+	nand_release(mtd);
 
 	kfree(mtd->name);
 

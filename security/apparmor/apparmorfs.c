@@ -126,22 +126,17 @@ static int aafs_show_path(struct seq_file *seq, struct dentry *dentry)
 	return 0;
 }
 
-static void aafs_i_callback(struct rcu_head *head)
+static void aafs_evict_inode(struct inode *inode)
 {
-	struct inode *inode = container_of(head, struct inode, i_rcu);
+	truncate_inode_pages_final(&inode->i_data);
+	clear_inode(inode);
 	if (S_ISLNK(inode->i_mode))
 		kfree(inode->i_link);
-	free_inode_nonrcu(inode);
-}
-
-static void aafs_destroy_inode(struct inode *inode)
-{
-	call_rcu(&inode->i_rcu, aafs_i_callback);
 }
 
 static const struct super_operations aafs_super_ops = {
 	.statfs = simple_statfs,
-	.destroy_inode = aafs_destroy_inode,
+	.evict_inode = aafs_evict_inode,
 	.show_path = aafs_show_path,
 };
 
@@ -363,7 +358,6 @@ static void aafs_remove(struct dentry *dentry)
 			simple_rmdir(dir, dentry);
 		else
 			simple_unlink(dir, dentry);
-		d_delete(dentry);
 		dput(dentry);
 	}
 	inode_unlock(dir);
@@ -426,7 +420,7 @@ static ssize_t policy_update(u32 mask, const char __user *buf, size_t size,
 	 */
 	error = aa_may_manage_policy(label, ns, mask);
 	if (error)
-		goto end_section;
+		return error;
 
 	data = aa_simple_write_to_buffer(buf, size, size, pos);
 	error = PTR_ERR(data);
@@ -434,7 +428,6 @@ static ssize_t policy_update(u32 mask, const char __user *buf, size_t size,
 		error = aa_replace_profiles(ns, label, mask, data);
 		aa_put_loaddata(data);
 	}
-end_section:
 	end_current_label_crit_section(label);
 
 	return error;
@@ -874,10 +867,8 @@ static struct multi_transaction *multi_transaction_new(struct file *file,
 	if (!t)
 		return ERR_PTR(-ENOMEM);
 	kref_init(&t->count);
-	if (copy_from_user(t->data, buf, size)) {
-		put_multi_transaction(t);
+	if (copy_from_user(t->data, buf, size))
 		return ERR_PTR(-EFAULT);
-	}
 
 	return t;
 }
@@ -1901,6 +1892,9 @@ fail2:
 
 	return error;
 }
+
+
+#define list_entry_is_head(pos, head, member) (&pos->member == (head))
 
 /**
  * __next_ns - find the next namespace to list

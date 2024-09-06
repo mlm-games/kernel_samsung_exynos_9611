@@ -585,7 +585,8 @@ vmci_transport_queue_pair_alloc(struct vmci_qp **qpair,
 			       peer, flags, VMCI_NO_PRIVILEGE_FLAGS);
 out:
 	if (err < 0) {
-		pr_err_once("Could not attach to queue pair with %d\n", err);
+		pr_err("Could not attach to queue pair with %d\n",
+		       err);
 		err = vmci_transport_error_to_vsock_error(err);
 	}
 
@@ -775,7 +776,7 @@ static int vmci_transport_recv_stream_cb(void *data, struct vmci_datagram *dg)
 		/* The local context ID may be out of date, update it. */
 		vsk->local_addr.svm_cid = dst.svm_cid;
 
-		if (sk->sk_state == TCP_ESTABLISHED)
+		if (sk->sk_state == SS_CONNECTED)
 			vmci_trans(vsk)->notify_ops->handle_notify_pkt(
 					sk, pkt, true, &dst, &src,
 					&bh_process_pkt);
@@ -833,9 +834,7 @@ static void vmci_transport_handle_detach(struct sock *sk)
 		 * left in our consume queue.
 		 */
 		if (vsock_stream_has_data(vsk) <= 0) {
-			sk->sk_state = TCP_CLOSE;
-
-			if (sk->sk_state == TCP_SYN_SENT) {
+			if (sk->sk_state == SS_CONNECTING) {
 				/* The peer may detach from a queue pair while
 				 * we are still in the connecting state, i.e.,
 				 * if the peer VM is killed after attaching to
@@ -844,10 +843,12 @@ static void vmci_transport_handle_detach(struct sock *sk)
 				 * event like a reset.
 				 */
 
+				sk->sk_state = SS_UNCONNECTED;
 				sk->sk_err = ECONNRESET;
 				sk->sk_error_report(sk);
 				return;
 			}
+			sk->sk_state = SS_UNCONNECTED;
 		}
 		sk->sk_state_change(sk);
 	}
@@ -915,17 +916,17 @@ static void vmci_transport_recv_pkt_work(struct work_struct *work)
 	vsock_sk(sk)->local_addr.svm_cid = pkt->dg.dst.context;
 
 	switch (sk->sk_state) {
-	case TCP_LISTEN:
+	case VSOCK_SS_LISTEN:
 		vmci_transport_recv_listen(sk, pkt);
 		break;
-	case TCP_SYN_SENT:
+	case SS_CONNECTING:
 		/* Processing of pending connections for servers goes through
 		 * the listening socket, so see vmci_transport_recv_listen()
 		 * for that path.
 		 */
 		vmci_transport_recv_connecting_client(sk, pkt);
 		break;
-	case TCP_ESTABLISHED:
+	case SS_CONNECTED:
 		vmci_transport_recv_connected(sk, pkt);
 		break;
 	default:
@@ -974,7 +975,7 @@ static int vmci_transport_recv_listen(struct sock *sk,
 		vsock_sk(pending)->local_addr.svm_cid = pkt->dg.dst.context;
 
 		switch (pending->sk_state) {
-		case TCP_SYN_SENT:
+		case SS_CONNECTING:
 			err = vmci_transport_recv_connecting_server(sk,
 								    pending,
 								    pkt);
@@ -1104,7 +1105,7 @@ static int vmci_transport_recv_listen(struct sock *sk,
 	vsock_add_pending(sk, pending);
 	sk->sk_ack_backlog++;
 
-	pending->sk_state = TCP_SYN_SENT;
+	pending->sk_state = SS_CONNECTING;
 	vmci_trans(vpending)->produce_size =
 		vmci_trans(vpending)->consume_size = qp_size;
 	vmci_trans(vpending)->queue_pair_size = qp_size;
@@ -1228,11 +1229,11 @@ vmci_transport_recv_connecting_server(struct sock *listener,
 	 * the socket will be valid until it is removed from the queue.
 	 *
 	 * If we fail sending the attach below, we remove the socket from the
-	 * connected list and move the socket to TCP_CLOSE before
+	 * connected list and move the socket to SS_UNCONNECTED before
 	 * releasing the lock, so a pending slow path processing of an incoming
 	 * packet will not see the socket in the connected state in that case.
 	 */
-	pending->sk_state = TCP_ESTABLISHED;
+	pending->sk_state = SS_CONNECTED;
 
 	vsock_insert_connected(vpending);
 
@@ -1263,7 +1264,7 @@ vmci_transport_recv_connecting_server(struct sock *listener,
 
 destroy:
 	pending->sk_err = skerr;
-	pending->sk_state = TCP_CLOSE;
+	pending->sk_state = SS_UNCONNECTED;
 	/* As long as we drop our reference, all necessary cleanup will handle
 	 * when the cleanup function drops its reference and our destruct
 	 * implementation is called.  Note that since the listen handler will
@@ -1301,7 +1302,7 @@ vmci_transport_recv_connecting_client(struct sock *sk,
 		 * accounting (it can already be found since it's in the bound
 		 * table).
 		 */
-		sk->sk_state = TCP_ESTABLISHED;
+		sk->sk_state = SS_CONNECTED;
 		sk->sk_socket->state = SS_CONNECTED;
 		vsock_insert_connected(vsk);
 		sk->sk_state_change(sk);
@@ -1369,7 +1370,7 @@ vmci_transport_recv_connecting_client(struct sock *sk,
 destroy:
 	vmci_transport_send_reset(sk, pkt);
 
-	sk->sk_state = TCP_CLOSE;
+	sk->sk_state = SS_UNCONNECTED;
 	sk->sk_err = skerr;
 	sk->sk_error_report(sk);
 	return err;
@@ -1557,7 +1558,7 @@ static int vmci_transport_recv_connected(struct sock *sk,
 		sock_set_flag(sk, SOCK_DONE);
 		vsk->peer_shutdown = SHUTDOWN_MASK;
 		if (vsock_stream_has_data(vsk) <= 0)
-			sk->sk_state = TCP_CLOSING;
+			sk->sk_state = SS_DISCONNECTING;
 
 		sk->sk_state_change(sk);
 		break;
@@ -1730,11 +1731,7 @@ static int vmci_transport_dgram_enqueue(
 	if (!dg)
 		return -ENOMEM;
 
-	err = memcpy_from_msg(VMCI_DG_PAYLOAD(dg), msg, len);
-	if (err) {
-		kfree(dg);
-		return err;
-	}
+	memcpy_from_msg(VMCI_DG_PAYLOAD(dg), msg, len);
 
 	dg->dst = vmci_make_handle(remote_addr->svm_cid,
 				   remote_addr->svm_port);
@@ -1829,7 +1826,7 @@ static int vmci_transport_connect(struct vsock_sock *vsk)
 		err = vmci_transport_send_conn_request(
 			sk, vmci_trans(vsk)->queue_pair_size);
 		if (err < 0) {
-			sk->sk_state = TCP_CLOSE;
+			sk->sk_state = SS_UNCONNECTED;
 			return err;
 		}
 	} else {
@@ -1839,7 +1836,7 @@ static int vmci_transport_connect(struct vsock_sock *vsk)
 				sk, vmci_trans(vsk)->queue_pair_size,
 				supported_proto_versions);
 		if (err < 0) {
-			sk->sk_state = TCP_CLOSE;
+			sk->sk_state = SS_UNCONNECTED;
 			return err;
 		}
 

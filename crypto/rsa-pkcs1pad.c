@@ -216,14 +216,16 @@ static void pkcs1pad_encrypt_sign_complete_cb(
 		struct crypto_async_request *child_async_req, int err)
 {
 	struct akcipher_request *req = child_async_req->data;
+	struct crypto_async_request async_req;
 
 	if (err == -EINPROGRESS)
-		goto out;
+		return;
 
-	err = pkcs1pad_encrypt_sign_complete(req, err);
-
-out:
-	akcipher_request_complete(req, err);
+	async_req.data = req->base.data;
+	async_req.tfm = crypto_akcipher_tfm(crypto_akcipher_reqtfm(req));
+	async_req.flags = child_async_req->flags;
+	req->base.complete(&async_req,
+			pkcs1pad_encrypt_sign_complete(req, err));
 }
 
 static int pkcs1pad_encrypt(struct akcipher_request *req)
@@ -258,6 +260,15 @@ static int pkcs1pad_encrypt(struct akcipher_request *req)
 
 	pkcs1pad_sg_set_buf(req_ctx->in_sg, req_ctx->in_buf,
 			ctx->key_size - 1 - req->src_len, req->src);
+
+	req_ctx->out_buf = kmalloc(ctx->key_size, GFP_KERNEL);
+	if (!req_ctx->out_buf) {
+		kfree(req_ctx->in_buf);
+		return -ENOMEM;
+	}
+
+	pkcs1pad_sg_set_buf(req_ctx->out_sg, req_ctx->out_buf,
+			ctx->key_size, NULL);
 
 	akcipher_request_set_tfm(&req_ctx->child_req, ctx->child);
 	akcipher_request_set_callback(&req_ctx->child_req, req->base.flags,
@@ -334,14 +345,15 @@ static void pkcs1pad_decrypt_complete_cb(
 		struct crypto_async_request *child_async_req, int err)
 {
 	struct akcipher_request *req = child_async_req->data;
+	struct crypto_async_request async_req;
 
 	if (err == -EINPROGRESS)
-		goto out;
+		return;
 
-	err = pkcs1pad_decrypt_complete(req, err);
-
-out:
-	akcipher_request_complete(req, err);
+	async_req.data = req->base.data;
+	async_req.tfm = crypto_akcipher_tfm(crypto_akcipher_reqtfm(req));
+	async_req.flags = child_async_req->flags;
+	req->base.complete(&async_req, pkcs1pad_decrypt_complete(req, err));
 }
 
 static int pkcs1pad_decrypt(struct akcipher_request *req)
@@ -503,14 +515,15 @@ static void pkcs1pad_verify_complete_cb(
 		struct crypto_async_request *child_async_req, int err)
 {
 	struct akcipher_request *req = child_async_req->data;
+	struct crypto_async_request async_req;
 
 	if (err == -EINPROGRESS)
-		goto out;
+		return;
 
-	err = pkcs1pad_verify_complete(req, err);
-
-out:
-	akcipher_request_complete(req, err);
+	async_req.data = req->base.data;
+	async_req.tfm = crypto_akcipher_tfm(crypto_akcipher_reqtfm(req));
+	async_req.flags = child_async_req->flags;
+	req->base.complete(&async_req, pkcs1pad_verify_complete(req, err));
 }
 
 /*

@@ -152,7 +152,7 @@ void trace_hwlat_callback(bool enter)
 		if (enter)
 			nmi_ts_start = time_get();
 		else
-			nmi_total_ts += time_get() - nmi_ts_start;
+			nmi_total_ts = time_get() - nmi_ts_start;
 	}
 
 	if (enter)
@@ -258,8 +258,6 @@ static int get_sample(void)
 		/* Keep a running maximum ever recorded hardware latency */
 		if (sample > tr->max_latency)
 			tr->max_latency = sample;
-		if (outer_sample > tr->max_latency)
-			tr->max_latency = outer_sample;
 	}
 
 out:
@@ -272,7 +270,6 @@ static bool disable_migrate;
 static void move_to_next_cpu(void)
 {
 	struct cpumask *current_mask = &save_cpumask;
-	struct trace_array *tr = hwlat_trace;
 	int next_cpu;
 
 	if (disable_migrate)
@@ -286,7 +283,7 @@ static void move_to_next_cpu(void)
 		goto disable;
 
 	get_online_cpus();
-	cpumask_and(current_mask, cpu_online_mask, tr->tracing_cpumask);
+	cpumask_and(current_mask, cpu_online_mask, tracing_buffer_mask);
 	next_cpu = cpumask_next(smp_processor_id(), current_mask);
 	put_online_cpus();
 
@@ -360,7 +357,7 @@ static int start_kthread(struct trace_array *tr)
 	/* Just pick the first CPU on first iteration */
 	current_mask = &save_cpumask;
 	get_online_cpus();
-	cpumask_and(current_mask, cpu_online_mask, tr->tracing_cpumask);
+	cpumask_and(current_mask, cpu_online_mask, tracing_buffer_mask);
 	put_online_cpus();
 	next_cpu = cpumask_first(current_mask);
 

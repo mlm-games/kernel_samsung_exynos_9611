@@ -127,7 +127,9 @@ void llc_sap_close(struct llc_sap *sap)
 	list_del_rcu(&sap->node);
 	spin_unlock_bh(&llc_sap_list_lock);
 
-	kfree_rcu(sap, rcu);
+	synchronize_rcu();
+
+	kfree(sap);
 }
 
 static struct packet_type llc_packet_type __read_mostly = {
@@ -135,15 +137,22 @@ static struct packet_type llc_packet_type __read_mostly = {
 	.func = llc_rcv,
 };
 
+static struct packet_type llc_tr_packet_type __read_mostly = {
+	.type = cpu_to_be16(ETH_P_TR_802_2),
+	.func = llc_rcv,
+};
+
 static int __init llc_init(void)
 {
 	dev_add_pack(&llc_packet_type);
+	dev_add_pack(&llc_tr_packet_type);
 	return 0;
 }
 
 static void __exit llc_exit(void)
 {
 	dev_remove_pack(&llc_packet_type);
+	dev_remove_pack(&llc_tr_packet_type);
 }
 
 module_init(llc_init);

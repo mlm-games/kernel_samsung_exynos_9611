@@ -596,7 +596,6 @@ static void __del_from_avail_list(struct swap_info_struct *p)
 {
 	int nid;
 
-	assert_spin_locked(&p->lock);
 	for_each_node(nid)
 		plist_del(&p->avail_lists[nid], &swap_avail_heads[nid]);
 }
@@ -974,7 +973,7 @@ start_over:
 			goto nextsi;
 		}
 		if (cluster) {
-			if (si->flags & SWP_BLKDEV)
+			if (!(si->flags & SWP_FILE))
 				n_ret = swap_alloc_cluster(si, swp_entries);
 		} else
 			n_ret = scan_swap_map_slots(si, SWAP_HAS_CACHE,
@@ -984,7 +983,6 @@ start_over:
 			goto check_out;
 		pr_debug("scan_swap_map of si %d failed to find offset\n",
 			si->type);
-		cond_resched();
 
 		spin_lock(&swap_avail_lock);
 nextsi:
@@ -2306,7 +2304,7 @@ sector_t map_swap_page(struct page *page, struct block_device **bdev)
 {
 	swp_entry_t entry;
 	entry.val = page_private(page);
-	return map_swap_entry(entry, bdev) << (PAGE_SHIFT - 9);
+	return map_swap_entry(entry, bdev);
 }
 
 /*
@@ -2575,8 +2573,8 @@ SYSCALL_DEFINE1(swapoff, const char __user *, specialfile)
 		spin_unlock(&swap_lock);
 		goto out_dput;
 	}
-	spin_lock(&p->lock);
 	del_from_avail_list(p);
+	spin_lock(&p->lock);
 	if (p->prio < 0) {
 		struct swap_info_struct *si = p;
 		int nid;
@@ -2830,7 +2828,6 @@ late_initcall(max_swapfiles_check);
 static struct swap_info_struct *alloc_swap_info(void)
 {
 	struct swap_info_struct *p;
-	struct swap_info_struct *defer = NULL;
 	unsigned int type;
 	int i;
 	int size = sizeof(*p) + nr_node_ids * sizeof(struct plist_node);
@@ -2860,7 +2857,7 @@ static struct swap_info_struct *alloc_swap_info(void)
 		smp_wmb();
 		nr_swapfiles++;
 	} else {
-		defer = p;
+		kvfree(p);
 		p = swap_info[type];
 		/*
 		 * Do not memset this entry: a racing procfs swap_next()
@@ -2873,7 +2870,6 @@ static struct swap_info_struct *alloc_swap_info(void)
 		plist_node_init(&p->avail_lists[i], 0);
 	p->flags = SWP_USED;
 	spin_unlock(&swap_lock);
-	kvfree(defer);
 	spin_lock_init(&p->lock);
 	spin_lock_init(&p->cont_lock);
 
@@ -3730,6 +3726,40 @@ static void free_swap_count_continuations(struct swap_info_struct *si)
 			}
 		}
 	}
+}
+
+unsigned long get_swap_orig_data_nrpages(void)
+{
+	unsigned long x = 0;
+#if IS_ENABLED(CONFIG_ZSMALLOC)
+	struct sysinfo i;
+
+	si_swapinfo(&i);
+	x = i.totalswap - i.freeswap;
+#endif
+	/*
+	 * to be safe on arithmetic calcuation in case of either
+	 * !defined(CONFIG_ZSMALLOC) or entirely swap free
+	 */
+	if (x == 0)
+		x = 1;
+	return x;
+}
+
+unsigned long get_swap_comp_pool_nrpages(void)
+{
+	unsigned long x = 0;
+
+#if IS_ENABLED(CONFIG_ZSMALLOC)
+	x = global_zone_page_state(NR_ZSPAGES);
+#endif
+	/*
+	 * to be safe on arithmetic calcuation in case of either
+	 * !defined(CONFIG_ZSMALLOC) or entirely swap free
+	 */
+	if (x == 0)
+		x = 1;
+	return x;
 }
 
 static int __init swapfile_init(void)

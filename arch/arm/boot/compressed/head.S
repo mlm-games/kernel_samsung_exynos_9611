@@ -114,7 +114,7 @@
 #endif
 		.endm
 
-		.section ".start", "ax"
+		.section ".start", #alloc, #execinstr
 /*
  * sort out different calling conventions
  */
@@ -792,6 +792,8 @@ __armv7_mmu_cache_on:
 		bic     r6, r6, #1 << 31        @ 32-bit translation system
 		bic     r6, r6, #(7 << 0) | (1 << 4)	@ use only ttbr0
 		mcrne	p15, 0, r3, c2, c0, 0	@ load page table pointer
+		mcrne	p15, 0, r0, c8, c7, 0	@ flush I,D TLBs
+		mcr	p15, 0, r0, c7, c5, 4	@ ISB
 		mcrne	p15, 0, r1, c3, c0, 0	@ load domain access control
 		mcrne   p15, 0, r6, c2, c0, 2   @ load ttb control
 #endif
@@ -1088,9 +1090,9 @@ __armv4_mmu_cache_off:
 __armv7_mmu_cache_off:
 		mrc	p15, 0, r0, c1, c0
 #ifdef CONFIG_MMU
-		bic	r0, r0, #0x0005
+		bic	r0, r0, #0x000d
 #else
-		bic	r0, r0, #0x0004
+		bic	r0, r0, #0x000c
 #endif
 		mcr	p15, 0, r0, c1, c0	@ turn MMU and cache off
 		mov	r12, lr
@@ -1393,21 +1395,7 @@ ENTRY(efi_stub_entry)
 
 		@ Preserve return value of efi_entry() in r4
 		mov	r4, r0
-
-		@ our cache maintenance code relies on CP15 barrier instructions
-		@ but since we arrived here with the MMU and caches configured
-		@ by UEFI, we must check that the CP15BEN bit is set in SCTLR.
-		@ Note that this bit is RAO/WI on v6 and earlier, so the ISB in
-		@ the enable path will be executed on v7+ only.
-		mrc	p15, 0, r1, c1, c0, 0	@ read SCTLR
-		tst	r1, #(1 << 5)		@ CP15BEN bit set?
-		bne	0f
-		orr	r1, r1, #(1 << 5)	@ CP15 barrier instructions
-		mcr	p15, 0, r1, c1, c0, 0	@ write SCTLR
- ARM(		.inst	0xf57ff06f		@ v7+ isb	)
- THUMB(		isb						)
-
-0:		bl	cache_clean_flush
+		bl	cache_clean_flush
 		bl	cache_off
 
 		@ Set parameters for booting zImage according to boot protocol

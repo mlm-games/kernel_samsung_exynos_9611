@@ -250,6 +250,8 @@ static int idma_mmap(struct snd_pcm_substream *substream,
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 	size = vma->vm_end - vma->vm_start;
 	offset = vma->vm_pgoff << PAGE_SHIFT;
+	if (offset > runtime->dma_bytes || size > runtime->dma_bytes - offset)
+		return -EINVAL;
 	ret = io_remap_pfn_range(vma, vma->vm_start,
 			(runtime->dma_addr + offset) >> PAGE_SHIFT,
 			size, vma->vm_page_prot);
@@ -369,8 +371,6 @@ static int preallocate_idma_buffer(struct snd_pcm *pcm, int stream)
 	buf->addr = idma.lp_tx_addr;
 	buf->bytes = idma_hardware.buffer_bytes_max;
 	buf->area = (unsigned char * __force)ioremap(buf->addr, buf->bytes);
-	if (!buf->area)
-		return -ENOMEM;
 
 	return 0;
 }

@@ -73,12 +73,6 @@ module_param(report_key_events, int, 0644);
 MODULE_PARM_DESC(report_key_events,
 	"0: none, 1: output changes, 2: brightness changes, 3: all");
 
-static int hw_changes_brightness = -1;
-module_param(hw_changes_brightness, int, 0644);
-MODULE_PARM_DESC(hw_changes_brightness,
-	"Set this to 1 on buggy hw which changes the brightness itself when "
-	"a hotkey is pressed: -1: auto, 0: normal 1: hw-changes-brightness");
-
 /*
  * Whether the struct acpi_video_device_attrib::device_id_scheme bit should be
  * assumed even if not actually set.
@@ -424,14 +418,6 @@ static int video_set_report_key_events(const struct dmi_system_id *id)
 	return 0;
 }
 
-static int video_hw_changes_brightness(
-	const struct dmi_system_id *d)
-{
-	if (hw_changes_brightness == -1)
-		hw_changes_brightness = 1;
-	return 0;
-}
-
 static const struct dmi_system_id video_dmi_table[] = {
 	/*
 	 * Broken _BQC workaround http://bugzilla.kernel.org/show_bug.cgi?id=13121
@@ -511,22 +497,6 @@ static const struct dmi_system_id video_dmi_table[] = {
 		DMI_MATCH(DMI_PRODUCT_NAME, "SATELLITE R830"),
 		},
 	},
-	{
-	 .callback = video_disable_backlight_sysfs_if,
-	 .ident = "Toshiba Satellite Z830",
-	 .matches = {
-		DMI_MATCH(DMI_SYS_VENDOR, "TOSHIBA"),
-		DMI_MATCH(DMI_PRODUCT_NAME, "SATELLITE Z830"),
-		},
-	},
-	{
-	 .callback = video_disable_backlight_sysfs_if,
-	 .ident = "Toshiba Portege Z830",
-	 .matches = {
-		DMI_MATCH(DMI_SYS_VENDOR, "TOSHIBA"),
-		DMI_MATCH(DMI_PRODUCT_NAME, "PORTEGE Z830"),
-		},
-	},
 	/*
 	 * Some machine's _DOD IDs don't have bit 31(Device ID Scheme) set
 	 * but the IDs actually follow the Device ID Scheme.
@@ -570,39 +540,6 @@ static const struct dmi_system_id video_dmi_table[] = {
 	 .matches = {
 		DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
 		DMI_MATCH(DMI_PRODUCT_NAME, "Vostro V131"),
-		},
-	},
-	{
-	 .callback = video_set_report_key_events,
-	 .driver_data = (void *)((uintptr_t)REPORT_BRIGHTNESS_KEY_EVENTS),
-	 .ident = "Dell Vostro 3350",
-	 .matches = {
-		DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
-		DMI_MATCH(DMI_PRODUCT_NAME, "Vostro 3350"),
-		},
-	},
-	{
-	 .callback = video_set_report_key_events,
-	 .driver_data = (void *)((uintptr_t)REPORT_BRIGHTNESS_KEY_EVENTS),
-	 .ident = "COLORFUL X15 AT 23",
-	 .matches = {
-		DMI_MATCH(DMI_SYS_VENDOR, "COLORFUL"),
-		DMI_MATCH(DMI_PRODUCT_NAME, "X15 AT 23"),
-		},
-	},
-	/*
-	 * Some machines change the brightness themselves when a brightness
-	 * hotkey gets pressed, despite us telling them not to. In this case
-	 * acpi_video_device_notify() should only call backlight_force_update(
-	 * BACKLIGHT_UPDATE_HOTKEY) and not do anything else.
-	 */
-	{
-	 /* https://bugzilla.kernel.org/show_bug.cgi?id=204077 */
-	 .callback = video_hw_changes_brightness,
-	 .ident = "Packard Bell EasyNote MZ35",
-	 .matches = {
-		DMI_MATCH(DMI_SYS_VENDOR, "Packard Bell"),
-		DMI_MATCH(DMI_PRODUCT_NAME, "EasyNote MZ35"),
 		},
 	},
 	{}
@@ -1687,14 +1624,6 @@ static void acpi_video_device_notify(acpi_handle handle, u32 event, void *data)
 	bus = video_device->video;
 	input = bus->input;
 
-	if (hw_changes_brightness > 0) {
-		if (video_device->backlight)
-			backlight_force_update(video_device->backlight,
-					       BACKLIGHT_UPDATE_HOTKEY);
-		acpi_notifier_call_chain(device, event, 0);
-		return;
-	}
-
 	switch (event) {
 	case ACPI_VIDEO_NOTIFY_CYCLE_BRIGHTNESS:	/* Cycle brightness */
 		brightness_switch_event(video_device, event);
@@ -1805,12 +1734,12 @@ static void acpi_video_dev_register_backlight(struct acpi_video_device *device)
 		return;
 	count++;
 
-	if (ACPI_SUCCESS(acpi_get_parent(device->dev->handle, &acpi_parent))) {
-		pdev = acpi_get_pci_dev(acpi_parent);
-		if (pdev) {
-			parent = &pdev->dev;
-			pci_dev_put(pdev);
-		}
+	acpi_get_parent(device->dev->handle, &acpi_parent);
+
+	pdev = acpi_get_pci_dev(acpi_parent);
+	if (pdev) {
+		parent = &pdev->dev;
+		pci_dev_put(pdev);
 	}
 
 	memset(&props, 0, sizeof(struct backlight_properties));

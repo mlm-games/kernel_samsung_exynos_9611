@@ -214,7 +214,6 @@ static const struct nla_policy nft_rule_compat_policy[NFTA_RULE_COMPAT_MAX + 1] 
 static int nft_parse_compat(const struct nlattr *attr, u16 *proto, bool *inv)
 {
 	struct nlattr *tb[NFTA_RULE_COMPAT_MAX+1];
-	u32 l4proto;
 	u32 flags;
 	int err;
 
@@ -227,18 +226,12 @@ static int nft_parse_compat(const struct nlattr *attr, u16 *proto, bool *inv)
 		return -EINVAL;
 
 	flags = ntohl(nla_get_be32(tb[NFTA_RULE_COMPAT_FLAGS]));
-	if (flags & NFT_RULE_COMPAT_F_UNUSED ||
-	    flags & ~NFT_RULE_COMPAT_F_MASK)
+	if (flags & ~NFT_RULE_COMPAT_F_MASK)
 		return -EINVAL;
 	if (flags & NFT_RULE_COMPAT_F_INV)
 		*inv = true;
 
-	l4proto = ntohl(nla_get_be32(tb[NFTA_RULE_COMPAT_PROTO]));
-	if (l4proto > U16_MAX)
-		return -EINVAL;
-
-	*proto = l4proto;
-
+	*proto = ntohl(nla_get_be32(tb[NFTA_RULE_COMPAT_PROTO]));
 	return 0;
 }
 
@@ -298,24 +291,6 @@ nft_target_destroy(const struct nft_ctx *ctx, const struct nft_expr *expr)
 		module_put(me);
 }
 
-static int nft_extension_dump_info(struct sk_buff *skb, int attr,
-				   const void *info,
-				   unsigned int size, unsigned int user_size)
-{
-	unsigned int info_size, aligned_size = XT_ALIGN(size);
-	struct nlattr *nla;
-
-	nla = nla_reserve(skb, attr, aligned_size);
-	if (!nla)
-		return -1;
-
-	info_size = user_size ? : size;
-	memcpy(nla_data(nla), info, info_size);
-	memset(nla_data(nla) + info_size, 0, aligned_size - info_size);
-
-	return 0;
-}
-
 static int nft_target_dump(struct sk_buff *skb, const struct nft_expr *expr)
 {
 	const struct xt_target *target = expr->ops->data;
@@ -323,8 +298,7 @@ static int nft_target_dump(struct sk_buff *skb, const struct nft_expr *expr)
 
 	if (nla_put_string(skb, NFTA_TARGET_NAME, target->name) ||
 	    nla_put_be32(skb, NFTA_TARGET_REV, htonl(target->revision)) ||
-	    nft_extension_dump_info(skb, NFTA_TARGET_INFO, info,
-				    target->targetsize, target->usersize))
+	    nla_put(skb, NFTA_TARGET_INFO, XT_ALIGN(target->targetsize), info))
 		goto nla_put_failure;
 
 	return 0;
@@ -560,8 +534,7 @@ static int __nft_match_dump(struct sk_buff *skb, const struct nft_expr *expr,
 
 	if (nla_put_string(skb, NFTA_MATCH_NAME, match->name) ||
 	    nla_put_be32(skb, NFTA_MATCH_REV, htonl(match->revision)) ||
-	    nft_extension_dump_info(skb, NFTA_MATCH_INFO, info,
-				    match->matchsize, match->usersize))
+	    nla_put(skb, NFTA_MATCH_INFO, XT_ALIGN(match->matchsize), info))
 		goto nla_put_failure;
 
 	return 0;

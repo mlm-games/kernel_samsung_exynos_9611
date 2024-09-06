@@ -11,6 +11,9 @@
 #include <linux/perf_event.h>
 #include "percpu_freelist.h"
 
+#define STACK_CREATE_FLAG_MASK \
+	(BPF_F_NUMA_NODE | BPF_F_RDONLY | BPF_F_WRONLY)
+
 struct stack_map_bucket {
 	struct pcpu_freelist_node fnode;
 	u32 hash;
@@ -28,8 +31,7 @@ struct bpf_stack_map {
 
 static int prealloc_elems_and_freelist(struct bpf_stack_map *smap)
 {
-	u64 elem_size = sizeof(struct stack_map_bucket) +
-			(u64)smap->map.value_size;
+	u32 elem_size = sizeof(struct stack_map_bucket) + smap->map.value_size;
 	int err;
 
 	smap->elems = bpf_map_area_alloc(elem_size * smap->map.max_entries,
@@ -61,7 +63,7 @@ static struct bpf_map *stack_map_alloc(union bpf_attr *attr)
 	if (!capable(CAP_SYS_ADMIN))
 		return ERR_PTR(-EPERM);
 
-	if (attr->map_flags & ~BPF_F_NUMA_NODE)
+	if (attr->map_flags & ~STACK_CREATE_FLAG_MASK)
 		return ERR_PTR(-EINVAL);
 
 	/* check sanity of attributes */
@@ -70,12 +72,7 @@ static struct bpf_map *stack_map_alloc(union bpf_attr *attr)
 	    value_size / 8 > sysctl_perf_event_max_stack)
 		return ERR_PTR(-EINVAL);
 
-	/* hash table size must be power of 2; roundup_pow_of_two() can overflow
-	 * into UB on 32-bit arches, so check that first
-	 */
-	if (attr->max_entries > 1UL << 31)
-		return ERR_PTR(-E2BIG);
-
+	/* hash table size must be power of 2 */
 	n_buckets = roundup_pow_of_two(attr->max_entries);
 
 	cost = n_buckets * sizeof(struct stack_map_bucket *) + sizeof(*smap);

@@ -1345,7 +1345,7 @@ sub reboot {
 
     } else {
 	# Make sure everything has been written to disk
-	run_ssh("sync", 10);
+	run_ssh("sync");
 
 	if (defined($time)) {
 	    start_monitor;
@@ -1384,8 +1384,7 @@ sub reboot {
 
 	# Still need to wait for the reboot to finish
 	wait_for_monitor($time, $reboot_success_line);
-    }
-    if ($powercycle || $time) {
+
 	end_monitor;
     }
 }
@@ -3798,10 +3797,9 @@ sub test_this_config {
     # .config to make sure it is missing the config that
     # we had before
     my %configs = %min_configs;
-    $configs{$config} = "# $config is not set";
+    delete $configs{$config};
     make_new_config ((values %configs), (values %keep_configs));
     make_oldconfig;
-    delete $configs{$config};
     undef %configs;
     assign_configs \%configs, $output_config;
 

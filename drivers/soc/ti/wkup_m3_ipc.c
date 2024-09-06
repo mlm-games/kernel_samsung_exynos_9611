@@ -375,8 +375,6 @@ static void wkup_m3_rproc_boot_thread(struct wkup_m3_ipc *m3_ipc)
 	ret = rproc_boot(m3_ipc->rproc);
 	if (ret)
 		dev_err(dev, "rproc_boot failed\n");
-	else
-		m3_ipc_state = m3_ipc;
 
 	do_exit(0);
 }
@@ -403,9 +401,9 @@ static int wkup_m3_ipc_probe(struct platform_device *pdev)
 	}
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
+	if (!irq) {
 		dev_err(&pdev->dev, "no irq resource\n");
-		return irq;
+		return -ENXIO;
 	}
 
 	ret = devm_request_irq(dev, irq, wkup_m3_txev_handler,
@@ -462,6 +460,8 @@ static int wkup_m3_ipc_probe(struct platform_device *pdev)
 		ret = PTR_ERR(task);
 		goto err_put_rproc;
 	}
+
+	m3_ipc_state = m3_ipc;
 
 	return 0;
 

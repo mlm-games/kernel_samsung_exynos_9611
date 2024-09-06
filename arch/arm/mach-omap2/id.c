@@ -199,8 +199,8 @@ void __init omap2xxx_check_revision(void)
 
 	pr_info("%s", soc_name);
 	if ((omap_rev() >> 8) & 0x0f)
-		pr_cont("%s", soc_rev);
-	pr_cont("\n");
+		pr_info("%s", soc_rev);
+	pr_info("\n");
 }
 
 #define OMAP3_SHOW_FEATURE(feat)		\
@@ -784,15 +784,10 @@ void __init omap_soc_device_init(void)
 
 	soc_dev_attr->machine  = soc_name;
 	soc_dev_attr->family   = omap_get_family();
-	if (!soc_dev_attr->family) {
-		kfree(soc_dev_attr);
-		return;
-	}
 	soc_dev_attr->revision = soc_rev;
 
 	soc_dev = soc_device_register(soc_dev_attr);
 	if (IS_ERR(soc_dev)) {
-		kfree(soc_dev_attr->family);
 		kfree(soc_dev_attr);
 		return;
 	}

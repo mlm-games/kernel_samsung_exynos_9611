@@ -3612,10 +3612,6 @@ static int si_cp_start(struct radeon_device *rdev)
 	for (i = RADEON_RING_TYPE_GFX_INDEX; i <= CAYMAN_RING_TYPE_CP2_INDEX; ++i) {
 		ring = &rdev->ring[i];
 		r = radeon_ring_lock(rdev, ring, 2);
-		if (r) {
-			DRM_ERROR("radeon: cp failed to lock ring (%d).\n", r);
-			return r;
-		}
 
 		/* clear the compute context state */
 		radeon_ring_write(ring, PACKET3_COMPUTE(PACKET3_CLEAR_STATE, 0));
@@ -5997,8 +5993,8 @@ static int si_irq_init(struct radeon_device *rdev)
 	}
 
 	/* setup interrupt control */
-	/* set dummy read address to dummy page address */
-	WREG32(INTERRUPT_CNTL2, rdev->dummy_page.addr >> 8);
+	/* set dummy read address to ring address */
+	WREG32(INTERRUPT_CNTL2, rdev->ih.gpu_addr >> 8);
 	interrupt_cntl = RREG32(INTERRUPT_CNTL);
 	/* IH_DUMMY_RD_OVERRIDE=0 - dummy read disabled with msi, enabled without msi
 	 * IH_DUMMY_RD_OVERRIDE=1 - dummy read controlled by IH_DUMMY_RD_EN

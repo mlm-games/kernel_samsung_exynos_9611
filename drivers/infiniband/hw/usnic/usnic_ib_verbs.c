@@ -188,7 +188,6 @@ find_free_vf_and_create_qp_grp(struct usnic_ib_dev *us_ibdev,
 
 		}
 		usnic_uiom_free_dev_list(dev_list);
-		dev_list = NULL;
 	}
 
 	/* Try to find resources on an unused vf */
@@ -213,8 +212,6 @@ find_free_vf_and_create_qp_grp(struct usnic_ib_dev *us_ibdev,
 qp_grp_check:
 	if (IS_ERR_OR_NULL(qp_grp)) {
 		usnic_err("Failed to allocate qp_grp\n");
-		if (usnic_ib_share_vf)
-			usnic_uiom_free_dev_list(dev_list);
 		return ERR_PTR(qp_grp ? PTR_ERR(qp_grp) : -ENOMEM);
 	}
 	return qp_grp;
@@ -426,7 +423,7 @@ struct net_device *usnic_get_netdev(struct ib_device *device, u8 port_num)
 int usnic_ib_query_pkey(struct ib_device *ibdev, u8 port, u16 index,
 				u16 *pkey)
 {
-	if (index > 0)
+	if (index > 1)
 		return -EINVAL;
 
 	*pkey = 0xffff;

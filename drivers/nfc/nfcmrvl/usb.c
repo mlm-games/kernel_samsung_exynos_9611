@@ -304,7 +304,6 @@ static int nfcmrvl_probe(struct usb_interface *intf,
 
 	/* No configuration for USB */
 	memset(&config, 0, sizeof(config));
-	config.reset_n_io = -EINVAL;
 
 	nfc_info(&udev->dev, "intf %p id %p\n", intf, id);
 
@@ -400,25 +399,13 @@ static void nfcmrvl_play_deferred(struct nfcmrvl_usb_drv_data *drv_data)
 	int err;
 
 	while ((urb = usb_get_from_anchor(&drv_data->deferred))) {
-		usb_anchor_urb(urb, &drv_data->tx_anchor);
-
 		err = usb_submit_urb(urb, GFP_ATOMIC);
-		if (err) {
-			kfree(urb->setup_packet);
-			usb_unanchor_urb(urb);
-			usb_free_urb(urb);
+		if (err)
 			break;
-		}
 
 		drv_data->tx_in_flight++;
-		usb_free_urb(urb);
 	}
-
-	/* Cleanup the rest deferred urbs. */
-	while ((urb = usb_get_from_anchor(&drv_data->deferred))) {
-		kfree(urb->setup_packet);
-		usb_free_urb(urb);
-	}
+	usb_scuttle_anchored_urbs(&drv_data->deferred);
 }
 
 static int nfcmrvl_resume(struct usb_interface *intf)

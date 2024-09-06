@@ -313,29 +313,6 @@ static inline bool gfpflags_allow_blocking(const gfp_t gfp_flags)
 	return !!(gfp_flags & __GFP_DIRECT_RECLAIM);
 }
 
-/**
- * gfpflags_normal_context - is gfp_flags a normal sleepable context?
- * @gfp_flags: gfp_flags to test
- *
- * Test whether @gfp_flags indicates that the allocation is from the
- * %current context and allowed to sleep.
- *
- * An allocation being allowed to block doesn't mean it owns the %current
- * context.  When direct reclaim path tries to allocate memory, the
- * allocation context is nested inside whatever %current was doing at the
- * time of the original allocation.  The nested allocation may be allowed
- * to block but modifying anything %current owns can corrupt the outer
- * context's expectations.
- *
- * %true result from this function indicates that the allocation context
- * can sleep and use anything that's associated with %current.
- */
-static inline bool gfpflags_normal_context(const gfp_t gfp_flags)
-{
-	return (gfp_flags & (__GFP_DIRECT_RECLAIM | __GFP_MEMALLOC)) ==
-		__GFP_DIRECT_RECLAIM;
-}
-
 #ifdef CONFIG_HIGHMEM
 #define OPT_ZONE_HIGHMEM ZONE_HIGHMEM
 #else
@@ -600,6 +577,8 @@ static inline bool pm_suspended_storage(void)
 /* The below functions must be run on a range from a single zone. */
 extern int alloc_contig_range(unsigned long start, unsigned long end,
 			      unsigned migratetype, gfp_t gfp_mask);
+extern int alloc_contig_range_fast(unsigned long start, unsigned long end,
+				   unsigned migratetype);
 extern void free_contig_range(unsigned long pfn, unsigned nr_pages);
 #endif
 
@@ -607,5 +586,24 @@ extern void free_contig_range(unsigned long pfn, unsigned nr_pages);
 /* CMA stuff */
 extern void init_cma_reserved_pageblock(struct page *page);
 #endif
+
+#ifdef CONFIG_HPA
+int alloc_pages_highorder_except(int order, struct page **pages, int nents,
+				 phys_addr_t exception_areas[][2],
+				 int nr_exception);
+#else
+static inline int alloc_pages_highorder_except(int order,
+					       struct page **pages, int nents,
+					       phys_addr_t exception_areas[][2],
+					       int nr_exception)
+{
+	return -ENOENT;
+}
+#endif
+static inline int alloc_pages_highorder(int order, struct page **pages,
+					int nents)
+{
+	return alloc_pages_highorder_except(order, pages, nents, NULL, 0);
+}
 
 #endif /* __LINUX_GFP_H */

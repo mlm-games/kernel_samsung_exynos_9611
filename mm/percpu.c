@@ -984,8 +984,7 @@ static int pcpu_alloc_area(struct pcpu_chunk *chunk, int alloc_bits,
 	/*
 	 * Search to find a fit.
 	 */
-	end = min_t(int, start + alloc_bits + PCPU_BITMAP_BLOCK_BITS,
-		    pcpu_chunk_map_bits(chunk));
+	end = start + alloc_bits + PCPU_BITMAP_BLOCK_BITS;
 	bit_off = bitmap_find_next_zero_area(chunk->alloc_map, end, start,
 					     alloc_bits, align_mask);
 	if (bit_off >= end)
@@ -1099,7 +1098,7 @@ static struct pcpu_chunk * __init pcpu_alloc_first_chunk(unsigned long tmp_addr,
 
 	/* allocate chunk */
 	chunk = memblock_virt_alloc(sizeof(struct pcpu_chunk) +
-				    BITS_TO_LONGS(region_size >> PAGE_SHIFT) * sizeof(unsigned long),
+				    BITS_TO_LONGS(region_size >> PAGE_SHIFT),
 				    0);
 
 	INIT_LIST_HEAD(&chunk->list);
@@ -1703,7 +1702,6 @@ void free_percpu(void __percpu *ptr)
 	struct pcpu_chunk *chunk;
 	unsigned long flags;
 	int off;
-	bool need_balance = false;
 
 	if (!ptr)
 		return;
@@ -1725,7 +1723,7 @@ void free_percpu(void __percpu *ptr)
 
 		list_for_each_entry(pos, &pcpu_slot[pcpu_nr_slots - 1], list)
 			if (pos != chunk) {
-				need_balance = true;
+				pcpu_schedule_balance_work();
 				break;
 			}
 	}
@@ -1733,9 +1731,6 @@ void free_percpu(void __percpu *ptr)
 	trace_percpu_free_percpu(chunk->base_addr, off, ptr);
 
 	spin_unlock_irqrestore(&pcpu_lock, flags);
-
-	if (need_balance)
-		pcpu_schedule_balance_work();
 }
 EXPORT_SYMBOL_GPL(free_percpu);
 
@@ -2261,7 +2256,7 @@ static struct pcpu_alloc_info * __init pcpu_build_alloc_info(
 	const size_t static_size = __per_cpu_end - __per_cpu_start;
 	int nr_groups = 1, nr_units = 0;
 	size_t size_sum, min_unit_size, alloc_size;
-	int upa, max_upa, best_upa;	/* units_per_alloc */
+	int upa, max_upa, uninitialized_var(best_upa);	/* units_per_alloc */
 	int last_allocs, group, unit;
 	unsigned int cpu, tcpu;
 	struct pcpu_alloc_info *ai;
@@ -2512,8 +2507,8 @@ int __init pcpu_embed_first_chunk(size_t reserved_size, size_t dyn_size,
 		ai->groups[group].base_offset = areas[group] - base;
 	}
 
-	pr_info("Embedded %zu pages/cpu s%zu r%zu d%zu u%zu\n",
-		PFN_DOWN(size_sum), ai->static_size, ai->reserved_size,
+	pr_info("Embedded %zu pages/cpu @%p s%zu r%zu d%zu u%zu\n",
+		PFN_DOWN(size_sum), base, ai->static_size, ai->reserved_size,
 		ai->dyn_size, ai->unit_size);
 
 	rc = pcpu_setup_first_chunk(ai, base);
@@ -2634,8 +2629,8 @@ int __init pcpu_page_first_chunk(size_t reserved_size,
 	}
 
 	/* we're ready, commit */
-	pr_info("%d %s pages/cpu s%zu r%zu d%zu\n",
-		unit_pages, psize_str, ai->static_size,
+	pr_info("%d %s pages/cpu @%p s%zu r%zu d%zu\n",
+		unit_pages, psize_str, vm.addr, ai->static_size,
 		ai->reserved_size, ai->dyn_size);
 
 	rc = pcpu_setup_first_chunk(ai, vm.addr);

@@ -119,7 +119,6 @@ struct mwifiex_uap_bss_param {
 	u8 qos_info;
 	u8 power_constraint;
 	struct mwifiex_types_wmm_info wmm_info;
-	u8 mac_addr[ETH_ALEN];
 };
 
 enum {
@@ -268,7 +267,6 @@ struct mwifiex_ds_encrypt_key {
 
 struct mwifiex_power_cfg {
 	u32 is_power_auto;
-	u32 is_power_fixed;
 	u32 power_level;
 };
 

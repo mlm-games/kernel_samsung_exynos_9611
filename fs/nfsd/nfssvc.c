@@ -410,7 +410,8 @@ static void nfsd_last_thread(struct svc_serv *serv, struct net *net)
 		return;
 
 	nfsd_shutdown_net(net);
-	pr_info("nfsd: last server has exited, flushing export cache\n");
+	printk(KERN_WARNING "nfsd: last server has exited, flushing export "
+			    "cache\n");
 	nfsd_export_flush(net);
 }
 
@@ -446,7 +447,7 @@ void nfsd_reset_versions(void)
  */
 static void set_max_drc(void)
 {
-	#define NFSD_DRC_SIZE_SHIFT	7
+	#define NFSD_DRC_SIZE_SHIFT	10
 	nfsd_drc_max_mem = (nr_free_buffer_pages()
 					>> NFSD_DRC_SIZE_SHIFT) * PAGE_SIZE;
 	nfsd_drc_mem_used = 0;

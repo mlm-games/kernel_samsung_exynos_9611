@@ -55,33 +55,31 @@ enum xiic_endian {
 
 /**
  * struct xiic_i2c - Internal representation of the XIIC I2C bus
- * @dev: Pointer to device structure
- * @base: Memory base of the HW registers
- * @wait: Wait queue for callers
- * @adap: Kernel adapter representation
- * @tx_msg: Messages from above to be sent
- * @lock: Mutual exclusion
- * @tx_pos: Current pos in TX message
- * @nmsgs: Number of messages in tx_msg
- * @state: See STATE_
- * @rx_msg: Current RX message
- * @rx_pos: Position within current RX message
+ * @base:	Memory base of the HW registers
+ * @wait:	Wait queue for callers
+ * @adap:	Kernel adapter representation
+ * @tx_msg:	Messages from above to be sent
+ * @lock:	Mutual exclusion
+ * @tx_pos:	Current pos in TX message
+ * @nmsgs:	Number of messages in tx_msg
+ * @state:	See STATE_
+ * @rx_msg:	Current RX message
+ * @rx_pos:	Position within current RX message
  * @endianness: big/little-endian byte order
- * @clk: Pointer to AXI4-lite input clock
  */
 struct xiic_i2c {
-	struct device *dev;
-	void __iomem *base;
-	wait_queue_head_t wait;
-	struct i2c_adapter adap;
-	struct i2c_msg *tx_msg;
-	struct mutex lock;
-	unsigned int tx_pos;
-	unsigned int nmsgs;
-	enum xilinx_i2c_state state;
-	struct i2c_msg *rx_msg;
-	int rx_pos;
-	enum xiic_endian endianness;
+	struct device		*dev;
+	void __iomem		*base;
+	wait_queue_head_t	wait;
+	struct i2c_adapter	adap;
+	struct i2c_msg		*tx_msg;
+	struct mutex		lock;
+	unsigned int		tx_pos;
+	unsigned int		nmsgs;
+	enum xilinx_i2c_state	state;
+	struct i2c_msg		*rx_msg;
+	int			rx_pos;
+	enum xiic_endian	endianness;
 	struct clk *clk;
 };
 
@@ -171,8 +169,6 @@ struct xiic_i2c {
 #define XIIC_RESET_MASK             0xAUL
 
 #define XIIC_PM_TIMEOUT		1000	/* ms */
-/* timeout waiting for the controller to respond */
-#define XIIC_I2C_TIMEOUT	(msecs_to_jiffies(1000))
 /*
  * The following constant is used for the device global interrupt enable
  * register, to enable all interrupts for the device, this is the only bit
@@ -183,7 +179,7 @@ struct xiic_i2c {
 #define xiic_tx_space(i2c) ((i2c)->tx_msg->len - (i2c)->tx_pos)
 #define xiic_rx_space(i2c) ((i2c)->rx_msg->len - (i2c)->rx_pos)
 
-static int xiic_start_xfer(struct xiic_i2c *i2c, struct i2c_msg *msgs, int num);
+static void xiic_start_xfer(struct xiic_i2c *i2c);
 static void __xiic_start_xfer(struct xiic_i2c *i2c);
 
 /*
@@ -264,29 +260,17 @@ static inline void xiic_irq_clr_en(struct xiic_i2c *i2c, u32 mask)
 	xiic_irq_en(i2c, mask);
 }
 
-static int xiic_clear_rx_fifo(struct xiic_i2c *i2c)
+static void xiic_clear_rx_fifo(struct xiic_i2c *i2c)
 {
 	u8 sr;
-	unsigned long timeout;
-
-	timeout = jiffies + XIIC_I2C_TIMEOUT;
 	for (sr = xiic_getreg8(i2c, XIIC_SR_REG_OFFSET);
 		!(sr & XIIC_SR_RX_FIFO_EMPTY_MASK);
-		sr = xiic_getreg8(i2c, XIIC_SR_REG_OFFSET)) {
+		sr = xiic_getreg8(i2c, XIIC_SR_REG_OFFSET))
 		xiic_getreg8(i2c, XIIC_DRR_REG_OFFSET);
-		if (time_after(jiffies, timeout)) {
-			dev_err(i2c->dev, "Failed to clear rx fifo\n");
-				return -ETIMEDOUT;
-		}
-	}
-
-	return 0;
 }
 
-static int xiic_reinit(struct xiic_i2c *i2c)
+static void xiic_reinit(struct xiic_i2c *i2c)
 {
-	int ret;
-
 	xiic_setreg32(i2c, XIIC_RESETR_OFFSET, XIIC_RESET_MASK);
 
 	/* Set receive Fifo depth to maximum (zero based). */
@@ -299,16 +283,12 @@ static int xiic_reinit(struct xiic_i2c *i2c)
 	xiic_setreg8(i2c, XIIC_CR_REG_OFFSET, XIIC_CR_ENABLE_DEVICE_MASK);
 
 	/* make sure RX fifo is empty */
-	ret = xiic_clear_rx_fifo(i2c);
-	if (ret)
-		return ret;
+	xiic_clear_rx_fifo(i2c);
 
 	/* Enable interrupts */
 	xiic_setreg32(i2c, XIIC_DGIER_OFFSET, XIIC_GINTR_ENABLE_MASK);
 
 	xiic_irq_clr_en(i2c, XIIC_INTR_ARB_LOST_MASK);
-
-	return 0;
 }
 
 static void xiic_deinit(struct xiic_i2c *i2c)
@@ -388,9 +368,6 @@ static irqreturn_t xiic_process(int irq, void *dev_id)
 	struct xiic_i2c *i2c = dev_id;
 	u32 pend, isr, ier;
 	u32 clr = 0;
-	int xfer_more = 0;
-	int wakeup_req = 0;
-	int wakeup_code = 0;
 
 	/* Get the interrupt Status from the IPIF. There is no clearing of
 	 * interrupts in the IPIF. Interrupts must be cleared at the source.
@@ -427,16 +404,10 @@ static irqreturn_t xiic_process(int irq, void *dev_id)
 		 */
 		xiic_reinit(i2c);
 
-		if (i2c->rx_msg) {
-			wakeup_req = 1;
-			wakeup_code = STATE_ERROR;
-		}
-		if (i2c->tx_msg) {
-			wakeup_req = 1;
-			wakeup_code = STATE_ERROR;
-		}
-		/* don't try to handle other events */
-		goto out;
+		if (i2c->rx_msg)
+			xiic_wakeup(i2c, STATE_ERROR);
+		if (i2c->tx_msg)
+			xiic_wakeup(i2c, STATE_ERROR);
 	}
 	if (pend & XIIC_INTR_RX_FULL_MASK) {
 		/* Receive register/FIFO is full */
@@ -470,7 +441,8 @@ static irqreturn_t xiic_process(int irq, void *dev_id)
 				i2c->tx_msg++;
 				dev_dbg(i2c->adap.dev.parent,
 					"%s will start next...\n", __func__);
-				xfer_more = 1;
+
+				__xiic_start_xfer(i2c);
 			}
 		}
 	}
@@ -484,13 +456,11 @@ static irqreturn_t xiic_process(int irq, void *dev_id)
 		if (!i2c->tx_msg)
 			goto out;
 
-		wakeup_req = 1;
-
-		if (i2c->nmsgs == 1 && !i2c->rx_msg &&
-		    xiic_tx_space(i2c) == 0)
-			wakeup_code = STATE_DONE;
+		if ((i2c->nmsgs == 1) && !i2c->rx_msg &&
+			xiic_tx_space(i2c) == 0)
+			xiic_wakeup(i2c, STATE_DONE);
 		else
-			wakeup_code = STATE_ERROR;
+			xiic_wakeup(i2c, STATE_ERROR);
 	}
 	if (pend & (XIIC_INTR_TX_EMPTY_MASK | XIIC_INTR_TX_HALF_MASK)) {
 		/* Transmit register/FIFO is empty or ½ empty */
@@ -514,7 +484,7 @@ static irqreturn_t xiic_process(int irq, void *dev_id)
 			if (i2c->nmsgs > 1) {
 				i2c->nmsgs--;
 				i2c->tx_msg++;
-				xfer_more = 1;
+				__xiic_start_xfer(i2c);
 			} else {
 				xiic_irq_dis(i2c, XIIC_INTR_TX_HALF_MASK);
 
@@ -532,13 +502,6 @@ out:
 	dev_dbg(i2c->adap.dev.parent, "%s clr: 0x%x\n", __func__, clr);
 
 	xiic_setreg32(i2c, XIIC_IISR_OFFSET, clr);
-	if (xfer_more)
-		__xiic_start_xfer(i2c);
-	if (wakeup_req)
-		xiic_wakeup(i2c, wakeup_code);
-
-	WARN_ON(xfer_more && wakeup_req);
-
 	mutex_unlock(&i2c->lock);
 	return IRQ_HANDLED;
 }
@@ -706,28 +669,12 @@ static void __xiic_start_xfer(struct xiic_i2c *i2c)
 
 }
 
-static int xiic_start_xfer(struct xiic_i2c *i2c, struct i2c_msg *msgs, int num)
+static void xiic_start_xfer(struct xiic_i2c *i2c)
 {
-	int ret;
-
 	mutex_lock(&i2c->lock);
-
-	ret = xiic_busy(i2c);
-	if (ret)
-		goto out;
-
-	i2c->tx_msg = msgs;
-	i2c->rx_msg = NULL;
-	i2c->nmsgs = num;
-
-	ret = xiic_reinit(i2c);
-	if (!ret)
-		__xiic_start_xfer(i2c);
-
-out:
+	xiic_reinit(i2c);
+	__xiic_start_xfer(i2c);
 	mutex_unlock(&i2c->lock);
-
-	return ret;
 }
 
 static int xiic_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
@@ -742,19 +689,20 @@ static int xiic_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 	if (err < 0)
 		return err;
 
-	err = xiic_start_xfer(i2c, msgs, num);
-	if (err < 0) {
-		dev_err(adap->dev.parent, "Error xiic_start_xfer\n");
+	err = xiic_busy(i2c);
+	if (err)
 		goto out;
-	}
+
+	i2c->tx_msg = msgs;
+	i2c->nmsgs = num;
+
+	xiic_start_xfer(i2c);
 
 	if (wait_event_timeout(i2c->wait, (i2c->state == STATE_ERROR) ||
 		(i2c->state == STATE_DONE), HZ)) {
-		mutex_lock(&i2c->lock);
 		err = (i2c->state == STATE_DONE) ? num : -EIO;
 		goto out;
 	} else {
-		mutex_lock(&i2c->lock);
 		i2c->tx_msg = NULL;
 		i2c->rx_msg = NULL;
 		i2c->nmsgs = 0;
@@ -762,7 +710,6 @@ static int xiic_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 		goto out;
 	}
 out:
-	mutex_unlock(&i2c->lock);
 	pm_runtime_mark_last_busy(i2c->dev);
 	pm_runtime_put_autosuspend(i2c->dev);
 	return err;
@@ -778,15 +725,11 @@ static const struct i2c_algorithm xiic_algorithm = {
 	.functionality = xiic_func,
 };
 
-static const struct i2c_adapter_quirks xiic_quirks = {
-	.max_read_len = 255,
-};
-
 static const struct i2c_adapter xiic_adapter = {
 	.owner = THIS_MODULE,
+	.name = DRIVER_NAME,
 	.class = I2C_CLASS_DEPRECATED,
 	.algo = &xiic_algorithm,
-	.quirks = &xiic_quirks,
 };
 
 
@@ -820,8 +763,6 @@ static int xiic_i2c_probe(struct platform_device *pdev)
 	i2c_set_adapdata(&i2c->adap, i2c);
 	i2c->adap.dev.parent = &pdev->dev;
 	i2c->adap.dev.of_node = pdev->dev.of_node;
-	snprintf(i2c->adap.name, sizeof(i2c->adap.name),
-		 DRIVER_NAME " %s", pdev->name);
 
 	mutex_init(&i2c->lock);
 	init_waitqueue_head(&i2c->wait);
@@ -862,11 +803,7 @@ static int xiic_i2c_probe(struct platform_device *pdev)
 	if (!(sr & XIIC_SR_TX_FIFO_EMPTY_MASK))
 		i2c->endianness = BIG;
 
-	ret = xiic_reinit(i2c);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "Cannot xiic_reinit\n");
-		goto err_clk_dis;
-	}
+	xiic_reinit(i2c);
 
 	/* add i2c adapter to i2c tree */
 	ret = i2c_add_adapter(&i2c->adap);
@@ -957,7 +894,6 @@ static struct platform_driver xiic_i2c_driver = {
 
 module_platform_driver(xiic_i2c_driver);
 
-MODULE_ALIAS("platform:" DRIVER_NAME);
 MODULE_AUTHOR("info@mocean-labs.com");
 MODULE_DESCRIPTION("Xilinx I2C bus driver");
 MODULE_LICENSE("GPL v2");

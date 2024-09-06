@@ -203,10 +203,7 @@ struct ucred {
 #define AF_VSOCK	40	/* vSockets			*/
 #define AF_KCM		41	/* Kernel Connection Multiplexor*/
 #define AF_QIPCRTR	42	/* Qualcomm IPC Router          */
-#define AF_SMC		43	/* smc sockets: reserve number for
-				 * PF_SMC protocol family that
-				 * reuses AF_INET address family
-				 */
+#define AF_SMC		43	/* smc sockets: reserve number for * PF_SMC protocol family that * reuses AF_INET address family */
 
 #define AF_MAX		44	/* For now.. */
 

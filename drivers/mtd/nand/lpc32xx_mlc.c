@@ -315,9 +315,8 @@ static int lpc32xx_nand_device_ready(struct mtd_info *mtd)
 	return 0;
 }
 
-static irqreturn_t lpc3xxx_nand_irq(int irq, void *data)
+static irqreturn_t lpc3xxx_nand_irq(int irq, struct lpc32xx_nand_host *host)
 {
-	struct lpc32xx_nand_host *host = data;
 	uint8_t sr;
 
 	/* Clear interrupt flag by reading status */
@@ -784,7 +783,7 @@ static int lpc32xx_nand_probe(struct platform_device *pdev)
 		goto err_exit3;
 	}
 
-	if (request_irq(host->irq, &lpc3xxx_nand_irq,
+	if (request_irq(host->irq, (irq_handler_t)&lpc3xxx_nand_irq,
 			IRQF_TRIGGER_HIGH, DRV_NAME, host)) {
 		dev_err(&pdev->dev, "Error requesting NAND IRQ\n");
 		res = -ENXIO;
@@ -806,7 +805,7 @@ static int lpc32xx_nand_probe(struct platform_device *pdev)
 	if (!res)
 		return res;
 
-	nand_release(nand_chip);
+	nand_release(mtd);
 
 err_exit4:
 	free_irq(host->irq, host);
@@ -830,8 +829,9 @@ err_exit1:
 static int lpc32xx_nand_remove(struct platform_device *pdev)
 {
 	struct lpc32xx_nand_host *host = platform_get_drvdata(pdev);
+	struct mtd_info *mtd = nand_to_mtd(&host->nand_chip);
 
-	nand_release(&host->nand_chip);
+	nand_release(mtd);
 	free_irq(host->irq, host);
 	if (use_dma)
 		dma_release_channel(host->dma_chan);

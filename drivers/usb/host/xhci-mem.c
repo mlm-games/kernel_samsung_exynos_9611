@@ -48,7 +48,9 @@ static struct xhci_segment *xhci_segment_alloc(struct xhci_hcd *xhci,
 	seg = kzalloc(sizeof *seg, flags);
 	if (!seg)
 		return NULL;
-
+#if defined (CONFIG_USB_HOST_SAMSUNG_FEATURE)
+	flags |= __GFP_NOWARN;
+#endif
 	seg->trbs = dma_pool_zalloc(xhci->segment_pool, flags, &dma);
 	if (!seg->trbs) {
 		kfree(seg);
@@ -483,7 +485,9 @@ static struct xhci_container_ctx *xhci_alloc_container_ctx(struct xhci_hcd *xhci
 	ctx->size = HCC_64BYTE_CONTEXT(xhci->hcc_params) ? 2048 : 1024;
 	if (type == XHCI_CTX_TYPE_INPUT)
 		ctx->size += CTX_SIZE(xhci->hcc_params);
-
+#if defined (CONFIG_USB_HOST_SAMSUNG_FEATURE)
+	flags |= __GFP_NOWARN;
+#endif
 	ctx->bytes = dma_pool_zalloc(xhci->device_pool, flags, &ctx->dma);
 	if (!ctx->bytes) {
 		kfree(ctx);
@@ -657,7 +661,7 @@ struct xhci_stream_info *xhci_alloc_stream_info(struct xhci_hcd *xhci,
 			num_stream_ctxs, &stream_info->ctx_array_dma,
 			mem_flags);
 	if (!stream_info->stream_ctx_array)
-		goto cleanup_ring_array;
+		goto cleanup_ctx;
 	memset(stream_info->stream_ctx_array, 0,
 			sizeof(struct xhci_stream_ctx)*num_stream_ctxs);
 
@@ -718,11 +722,6 @@ cleanup_rings:
 	}
 	xhci_free_command(xhci, stream_info->free_streams_command);
 cleanup_ctx:
-	xhci_free_stream_ctx(xhci,
-		stream_info->num_stream_ctxs,
-		stream_info->stream_ctx_array,
-		stream_info->ctx_array_dma);
-cleanup_ring_array:
 	kfree(stream_info->stream_rings);
 cleanup_info:
 	kfree(stream_info);
@@ -911,19 +910,15 @@ void xhci_free_virt_device(struct xhci_hcd *xhci, int slot_id)
 		if (dev->eps[i].stream_info)
 			xhci_free_stream_info(xhci,
 					dev->eps[i].stream_info);
-		/*
-		 * Endpoints are normally deleted from the bandwidth list when
-		 * endpoints are dropped, before device is freed.
-		 * If host is dying or being removed then endpoints aren't
-		 * dropped cleanly, so delete the endpoint from list here.
-		 * Only applicable for hosts with software bandwidth checking.
+		/* Endpoints on the TT/root port lists should have been removed
+		 * when usb_disable_device() was called for the device.
+		 * We can't drop them anyway, because the udev might have gone
+		 * away by this point, and we can't tell what speed it was.
 		 */
-
-		if (!list_empty(&dev->eps[i].bw_endpoint_list)) {
-			list_del_init(&dev->eps[i].bw_endpoint_list);
-			xhci_dbg(xhci, "Slot %u endpoint %u not removed from BW list!\n",
-				 slot_id, i);
-		}
+		if (!list_empty(&dev->eps[i].bw_endpoint_list))
+			xhci_warn(xhci, "Slot %u endpoint %u "
+					"not removed from BW list!\n",
+					slot_id, i);
 	}
 	/* If this is a hub, free the TT(s) from the TT list */
 	xhci_free_tt_info(xhci, dev, slot_id);
@@ -1488,15 +1483,9 @@ int xhci_endpoint_init(struct xhci_hcd *xhci,
 	/* Allow 3 retries for everything but isoc, set CErr = 3 */
 	if (!usb_endpoint_xfer_isoc(&ep->desc))
 		err_count = 3;
-	/* HS bulk max packet should be 512, FS bulk supports 8, 16, 32 or 64 */
-	if (usb_endpoint_xfer_bulk(&ep->desc)) {
-		if (udev->speed == USB_SPEED_HIGH)
-			max_packet = 512;
-		if (udev->speed == USB_SPEED_FULL) {
-			max_packet = rounddown_pow_of_two(max_packet);
-			max_packet = clamp_val(max_packet, 8, 64);
-		}
-	}
+	/* Some devices get this wrong */
+	if (usb_endpoint_xfer_bulk(&ep->desc) && udev->speed == USB_SPEED_HIGH)
+		max_packet = 512;
 	/* xHCI 1.0 and 1.1 indicates that ctrl ep avg TRB Length should be 8 */
 	if (usb_endpoint_xfer_control(&ep->desc) && xhci->hci_version >= 0x100)
 		avg_trb_len = 8;
@@ -1813,6 +1802,24 @@ void xhci_mem_cleanup(struct xhci_hcd *xhci)
 	xhci->event_ring = NULL;
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "Freed event ring");
 
+#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+	if (xhci->save_addr)
+		dma_free_coherent(dev, sizeof(PAGE_SIZE), xhci->save_addr, xhci->save_dma);
+	xhci_info(xhci, "%s: Freed save-restore buffer for Audio offloading", __func__);
+
+	size = sizeof(struct xhci_erst_entry)*(xhci->erst_audio.num_entries);
+	if (xhci->erst_audio.entries)
+		dma_free_coherent(dev, size,
+				xhci->erst_audio.entries, xhci->erst_audio.erst_dma_addr);
+	xhci->erst_audio.entries = NULL;
+	xhci_info(xhci, "%s: Freed ERST for Audio offloading", __func__);
+
+	if (xhci->event_ring_audio)
+		xhci_ring_free(xhci, xhci->event_ring_audio);
+	xhci->event_ring_audio = NULL;
+	xhci_info(xhci, "%s: Freed event ring for Audio offloading", __func__);
+#endif
+
 	if (xhci->lpm_command)
 		xhci_free_command(xhci, xhci->lpm_command);
 	xhci->lpm_command = NULL;
@@ -1881,14 +1888,10 @@ no_bw:
 	kfree(xhci->port_array);
 	kfree(xhci->rh_bw);
 	kfree(xhci->ext_caps);
-	kfree(xhci->usb2_rhub.psi);
-	kfree(xhci->usb3_rhub.psi);
 
 	xhci->usb2_ports = NULL;
 	xhci->usb3_ports = NULL;
 	xhci->port_array = NULL;
-	xhci->usb2_rhub.psi = NULL;
-	xhci->usb3_rhub.psi = NULL;
 	xhci->rh_bw = NULL;
 	xhci->ext_caps = NULL;
 
@@ -2056,6 +2059,32 @@ static int xhci_check_trb_in_td_math(struct xhci_hcd *xhci)
 	return 0;
 }
 
+#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+static void xhci_set_hc_event_deq_audio(struct xhci_hcd *xhci)
+{
+	u64 temp;
+	dma_addr_t deq;
+
+	deq = xhci_trb_virt_to_dma(xhci->event_ring_audio->deq_seg,
+			xhci->event_ring_audio->dequeue);
+	if (deq == 0 && !in_interrupt())
+		xhci_warn(xhci, "WARN something wrong with SW event ring "
+				"dequeue ptr.\n");
+	/* Update HC event ring dequeue pointer */
+	temp = xhci_read_64(xhci, &xhci->ir_set_audio->erst_dequeue);
+	temp &= ERST_PTR_MASK;
+	/* Don't clear the EHB bit (which is RW1C) because
+	 * there might be more events to service.
+	 */
+	temp &= ~ERST_EHB;
+	xhci_info(xhci,
+			"//[%s] Write event ring dequeue pointer = 0x%llx, "
+			"preserving EHB bit",__func__, ((u64) deq & (u64) ~ERST_PTR_MASK) | temp);
+	xhci_write_64(xhci, ((u64) deq & (u64) ~ERST_PTR_MASK) | temp,
+			&xhci->ir_set_audio->erst_dequeue);
+}
+#endif
+
 static void xhci_set_hc_event_deq(struct xhci_hcd *xhci)
 {
 	u64 temp;
@@ -2094,15 +2123,6 @@ static void xhci_add_in_port(struct xhci_hcd *xhci, unsigned int num_ports,
 
 	if (major_revision == 0x03) {
 		rhub = &xhci->usb3_rhub;
-		/*
-		 * Some hosts incorrectly use sub-minor version for minor
-		 * version (i.e. 0x02 instead of 0x20 for bcdUSB 0x320 and 0x01
-		 * for bcdUSB 0x310). Since there is no USB release with sub
-		 * minor version 0x301 to 0x309, we can assume that they are
-		 * incorrect and fix it here.
-		 */
-		if (minor_revision > 0x00 && minor_revision < 0x10)
-			minor_revision <<= 4;
 	} else if (major_revision <= 0x02) {
 		rhub = &xhci->usb2_rhub;
 	} else {
@@ -2485,7 +2505,9 @@ int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags)
 	xhci_print_run_regs(xhci);
 	/* Set ir_set to interrupt register set 0 */
 	xhci->ir_set = &xhci->run_regs->ir_set[0];
-
+#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+	xhci->ir_set_audio = &xhci->run_regs->ir_set[1];
+#endif
 	/*
 	 * Event ring setup: Allocate a normal ring, but also setup
 	 * the event ring segment table (ERST).  Section 4.9.3.
@@ -2551,6 +2573,73 @@ int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags)
 			"Wrote ERST address to ir_set 0.");
 	xhci_print_ir_set(xhci, 0);
 
+#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+	xhci->save_addr = dma_alloc_coherent(dev, sizeof(PAGE_SIZE), &dma,
+			flags);
+	xhci->save_dma = dma;
+	xhci_info(xhci, "// Save address = 0x%llx (DMA), %p (virt)",
+			(unsigned long long)xhci->save_dma, xhci->save_addr);
+	/* for AUDIO erst */
+	xhci->event_ring_audio = xhci_ring_alloc(xhci, ERST_NUM_SEGS, 1, TYPE_EVENT,
+					0, flags);
+	if (!xhci->event_ring_audio)
+		goto fail;
+	if (xhci_check_trb_in_td_math(xhci) < 0)
+		goto fail;
+
+	xhci->erst_audio.entries = dma_alloc_coherent(dev,
+			sizeof(struct xhci_erst_entry) * ERST_NUM_SEGS, &dma,
+			flags);
+	if (!xhci->erst_audio.entries)
+		goto fail;
+	xhci_info(xhci,
+			"// Allocated event ring segment table at 0x%llx",
+			(unsigned long long)dma);
+
+	memset(xhci->erst_audio.entries, 0, sizeof(struct xhci_erst_entry)*ERST_NUM_SEGS);
+	xhci->erst_audio.num_entries = ERST_NUM_SEGS;
+	xhci->erst_audio.erst_dma_addr = dma;
+	xhci_info(xhci,
+			"// Set ERST to 0; private num segs = %i, virt addr = %p, dma addr = 0x%llx",
+			xhci->erst.num_entries,
+			xhci->erst.entries,
+			(unsigned long long)xhci->erst.erst_dma_addr);
+
+	/* set ring base address and size for each segment table entry */
+	for (val = 0, seg = xhci->event_ring_audio->first_seg; val < ERST_NUM_SEGS; val++) {
+		struct xhci_erst_entry *entry = &xhci->erst_audio.entries[val];
+		entry->seg_addr = cpu_to_le64(seg->dma);
+		entry->seg_size = cpu_to_le32(TRBS_PER_SEGMENT);
+		entry->rsvd = 0;
+		seg = seg->next;
+	}
+
+	/* set ERST count with the number of entries in the segment table */
+	val = readl(&xhci->ir_set_audio->erst_size);
+	val &= ERST_SIZE_MASK;
+	val |= ERST_NUM_SEGS;
+	xhci_info(xhci,
+			"// Write ERST size = %i to ir_set 0 (some bits preserved)",
+			val);
+	writel(val, &xhci->ir_set_audio->erst_size);
+
+	xhci_info(xhci,
+			"// Set ERST entries to point to event ring.");
+	/* set the segment table base address */
+	xhci_info(xhci,
+			"// Set ERST base address for ir_set 0 = 0x%llx",
+			(unsigned long long)xhci->erst_audio.erst_dma_addr);
+	val_64 = xhci_read_64(xhci, &xhci->ir_set_audio->erst_base);
+	val_64 &= ERST_PTR_MASK;
+	val_64 |= (xhci->erst_audio.erst_dma_addr & (u64) ~ERST_PTR_MASK);
+	xhci_write_64(xhci, val_64, &xhci->ir_set_audio->erst_base);
+
+	/* Set the event ring dequeue address */
+	xhci_set_hc_event_deq_audio(xhci);
+	xhci_info(xhci,
+			"// Wrote ERST address to ir_set 1.");
+	xhci_print_ir_set(xhci, 1);
+#endif
 	/*
 	 * XXX: Might need to set the Interrupter Moderation Register to
 	 * something other than the default (~1ms minimum between interrupts).
@@ -2583,7 +2672,7 @@ int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags)
 
 fail:
 	xhci_halt(xhci);
-	xhci_reset(xhci, XHCI_RESET_SHORT_USEC);
+	xhci_reset(xhci);
 	xhci_mem_cleanup(xhci);
 	return -ENOMEM;
 }

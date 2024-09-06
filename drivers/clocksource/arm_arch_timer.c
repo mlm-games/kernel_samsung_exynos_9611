@@ -76,6 +76,7 @@ static bool arch_timer_c3stop;
 static bool arch_timer_mem_use_virtual;
 static bool arch_counter_suspend_stop;
 static bool vdso_default = true;
+static bool arch_timer_use_clocksource_only;
 
 static bool evtstrm_enable = IS_ENABLED(CONFIG_ARM_ARCH_TIMER_EVTSTREAM);
 
@@ -759,24 +760,15 @@ static void arch_timer_evtstrm_enable(int divider)
 
 static void arch_timer_configure_evtstream(void)
 {
-	int evt_stream_div, lsb;
+	int evt_stream_div, pos;
 
-	/*
-	 * As the event stream can at most be generated at half the frequency
-	 * of the counter, use half the frequency when computing the divider.
-	 */
-	evt_stream_div = arch_timer_rate / ARCH_TIMER_EVT_STREAM_FREQ / 2;
-
-	/*
-	 * Find the closest power of two to the divisor. If the adjacent bit
-	 * of lsb (last set bit, starts from 0) is set, then we use (lsb + 1).
-	 */
-	lsb = fls(evt_stream_div) - 1;
-	if (lsb > 0 && (evt_stream_div & BIT(lsb - 1)))
-		lsb++;
-
+	/* Find the closest power of two to the divisor */
+	evt_stream_div = arch_timer_rate / ARCH_TIMER_EVT_STREAM_FREQ;
+	pos = fls(evt_stream_div);
+	if (pos > 1 && !(evt_stream_div & (1 << (pos - 2))))
+		pos--;
 	/* enable event stream */
-	arch_timer_evtstrm_enable(max(0, min(lsb, 15)));
+	arch_timer_evtstrm_enable(min(pos, 15));
 }
 
 static void arch_counter_set_user_access(void)
@@ -828,6 +820,16 @@ static int arch_timer_starting_cpu(unsigned int cpu)
 	struct clock_event_device *clk = this_cpu_ptr(arch_timer_evt);
 	u32 flags;
 
+	/*
+	 * if arch_timer is used to clocksource only,
+	 * it doesn't need to setup clockevent configuration.
+	 * this is only for exynos soc
+	 */
+	if (arch_timer_use_clocksource_only) {
+		arch_timer_check_ool_workaround(ate_match_local_cap_id, NULL);
+		goto skip_clockevent_setup;
+	}
+
 	__arch_timer_setup(ARCH_TIMER_TYPE_CP15, clk);
 
 	flags = check_ppi_trigger(arch_timer_ppi[arch_timer_uses_ppi]);
@@ -839,6 +841,7 @@ static int arch_timer_starting_cpu(unsigned int cpu)
 				  flags);
 	}
 
+skip_clockevent_setup:
 	arch_counter_set_user_access();
 	if (evtstrm_enable)
 		arch_timer_configure_evtstream();
@@ -953,7 +956,17 @@ static int arch_timer_dying_cpu(unsigned int cpu)
 {
 	struct clock_event_device *clk = this_cpu_ptr(arch_timer_evt);
 
+	/*
+	 * If arch_timer is used to clocksource only,
+	 * it doesn't need to setup clockevent configuration.
+	 * This is only for Exynos SoC
+	 */
+	if (arch_timer_use_clocksource_only)
+		goto skip_clockevent_setup;
+
 	arch_timer_stop(clk);
+
+skip_clockevent_setup:
 	return 0;
 }
 
@@ -1188,6 +1201,12 @@ static int __init arch_timer_of_init(struct device_node *np)
 
 	rate = arch_timer_get_cntfrq();
 	arch_timer_of_configure_rate(rate, np);
+
+	/* Exynos Specific Device Tree Information */
+	if (of_property_read_bool(np, "use-clocksource-only")) {
+		pr_info("%s: arch_timer is used only clocksource\n", __func__);
+		arch_timer_use_clocksource_only = true;
+	}
 
 	arch_timer_c3stop = !of_property_read_bool(np, "always-on");
 

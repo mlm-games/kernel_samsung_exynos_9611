@@ -31,8 +31,7 @@ enum psample_nl_multicast_groups {
 
 static const struct genl_multicast_group psample_nl_mcgrps[] = {
 	[PSAMPLE_NL_MCGRP_CONFIG] = { .name = PSAMPLE_NL_MCGRP_CONFIG_NAME },
-	[PSAMPLE_NL_MCGRP_SAMPLE] = { .name = PSAMPLE_NL_MCGRP_SAMPLE_NAME,
-				      .flags = GENL_UNS_ADMIN_PERM },
+	[PSAMPLE_NL_MCGRP_SAMPLE] = { .name = PSAMPLE_NL_MCGRP_SAMPLE_NAME },
 };
 
 static struct genl_family psample_nl_family __ro_after_init;
@@ -157,7 +156,7 @@ static void psample_group_destroy(struct psample_group *group)
 {
 	psample_group_notify(group, PSAMPLE_CMD_DEL_GROUP);
 	list_del(&group->list);
-	kfree_rcu(group, rcu);
+	kfree(group);
 }
 
 static struct psample_group *
@@ -224,7 +223,7 @@ void psample_sample_packet(struct psample_group *group, struct sk_buff *skb,
 		data_len = PSAMPLE_MAX_PACKET_SIZE - meta_len - NLA_HDRLEN
 			    - NLA_ALIGNTO;
 
-	nl_skb = genlmsg_new(meta_len + nla_total_size(data_len), GFP_ATOMIC);
+	nl_skb = genlmsg_new(meta_len + data_len, GFP_ATOMIC);
 	if (unlikely(!nl_skb))
 		return;
 

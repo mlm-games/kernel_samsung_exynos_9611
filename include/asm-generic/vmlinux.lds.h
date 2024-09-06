@@ -67,10 +67,12 @@
  */
 #ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
 #define TEXT_MAIN .text .text.[0-9a-zA-Z_]*
+#define TEXT_CFI_MAIN .text.cfi .text.[0-9a-zA-Z_]*.cfi
 #define DATA_MAIN .data .data.[0-9a-zA-Z_]*
 #define BSS_MAIN .bss .bss.[0-9a-zA-Z_]*
 #else
 #define TEXT_MAIN .text
+#define TEXT_CFI_MAIN .text.cfi
 #define DATA_MAIN .data
 #define BSS_MAIN .bss
 #endif
@@ -105,7 +107,7 @@
 #ifdef CONFIG_FTRACE_MCOUNT_RECORD
 #define MCOUNT_REC()	. = ALIGN(8);				\
 			VMLINUX_SYMBOL(__start_mcount_loc) = .; \
-			*(__mcount_loc)				\
+			KEEP(*(__mcount_loc))			\
 			VMLINUX_SYMBOL(__stop_mcount_loc) = .;
 #else
 #define MCOUNT_REC()
@@ -251,8 +253,7 @@
 
 #define PAGE_ALIGNED_DATA(page_align)					\
 	. = ALIGN(page_align);						\
-	*(.data..page_aligned)						\
-	. = ALIGN(page_align);
+	*(.data..page_aligned)
 
 #define READ_MOSTLY_DATA(align)						\
 	. = ALIGN(align);						\
@@ -280,6 +281,45 @@
 	VMLINUX_SYMBOL(__end_ro_after_init) = .;
 #endif
 
+
+#define PG_IDMAP							\
+	. = ALIGN(PAGE_SIZE);					\
+		idmap_pg_dir = .;					\
+	. += IDMAP_DIR_SIZE;
+
+#define PG_SWAP								\
+	. = ALIGN(PAGE_SIZE);					\
+		swapper_pg_dir = .;					\
+	. += SWAPPER_DIR_SIZE;
+
+#ifdef CONFIG_ARM64_SW_TTBR0_PAN
+#define PG_RESERVED							\
+	. = ALIGN(PAGE_SIZE);					\
+	reserved_ttbr0 = .;						\
+	. += RESERVED_TTBR0_SIZE;
+#else
+#define PG_RESERVED
+#endif
+
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
+#define PG_TRAMP							\
+	. = ALIGN(PAGE_SIZE);					\
+	tramp_pg_dir = .;						\
+	. += PAGE_SIZE;
+#else
+#define PG_TRAMP
+#endif
+
+#ifdef CONFIG_UH_RKP
+#define RKP_RO_PGT					\
+	PG_IDMAP								\
+	PG_SWAP									\
+	PG_RESERVED								\
+	PG_TRAMP
+#else
+#define RKP_RO_PGT
+#endif
+
 /*
  * Read only Data
  */
@@ -299,6 +339,26 @@
 									\
 	.rodata1          : AT(ADDR(.rodata1) - LOAD_OFFSET) {		\
 		*(.rodata1)						\
+	}								\
+									\
+	. = ALIGN(4096);				\
+	.rkp_bss          : AT(ADDR(.rkp_bss) - LOAD_OFFSET) {		\
+		VMLINUX_SYMBOL(__start_rkp_bss) = .;		\
+		*(.rkp_bss.page_aligned)						\
+		*(.rkp_bss)						\
+		VMLINUX_SYMBOL(__stop_rkp_bss) = .;		\
+	} = 0								\
+									\
+	.rkp_ro          : AT(ADDR(.rkp_ro) - LOAD_OFFSET) {		\
+		VMLINUX_SYMBOL(__start_rkp_ro) = .;		\
+		*(.rkp_ro)						\
+		VMLINUX_SYMBOL(__stop_rkp_ro) = .;		\
+		VMLINUX_SYMBOL(__start_kdp_ro) = .;		\
+		*(.kdp_ro)						\
+		VMLINUX_SYMBOL(__stop_kdp_ro) = .;		\
+		VMLINUX_SYMBOL(__start_rkp_ro_pgt) = .;		\
+		RKP_RO_PGT						\
+		VMLINUX_SYMBOL(__stop_rkp_ro_pgt) = .;		\
 	}								\
 									\
 	/* PCI quirks */						\
@@ -413,6 +473,8 @@
 		*(__ksymtab_strings)					\
 	}								\
 									\
+	SECDBG_MEMBERS							\
+									\
 	/* __*init sections */						\
 	__init_rodata : AT(ADDR(__init_rodata) - LOAD_OFFSET) {		\
 		*(.ref.rodata)						\
@@ -459,13 +521,11 @@
  */
 #define TEXT_TEXT							\
 		ALIGN_FUNCTION();					\
-		*(.text.hot .text.hot.*)				\
-		*(TEXT_MAIN .text.fixup)				\
-		*(.text.unlikely .text.unlikely.*)			\
-		*(.text.unknown .text.unknown.*)			\
+		*(.text.hot TEXT_MAIN .text.fixup .text.unlikely)	\
 		*(.text..refcount)					\
+		*(.text..ftrace)					\
+		*(TEXT_CFI_MAIN) 					\
 		*(.ref.text)						\
-		*(.text.asan.* .text.tsan.*)				\
 	MEM_KEEP(init.text)						\
 	MEM_KEEP(exit.text)						\
 
@@ -517,7 +577,7 @@
 		VMLINUX_SYMBOL(__softirqentry_text_end) = .;
 
 /* Section used for early init (in .S files) */
-#define HEAD_TEXT  *(.head.text)
+#define HEAD_TEXT  KEEP(*(.head.text))
 
 #define HEAD_TEXT_SECTION							\
 	.head.text : AT(ADDR(.head.text) - LOAD_OFFSET) {		\
@@ -562,7 +622,7 @@
 	MEM_DISCARD(init.data)						\
 	KERNEL_CTORS()							\
 	MCOUNT_REC()							\
-	*(.init.rodata)							\
+	*(.init.rodata .init.rodata.*)					\
 	FTRACE_EVENTS()							\
 	TRACE_SYSCALLS()						\
 	KPROBE_BLACKLIST()						\
@@ -581,7 +641,7 @@
 	EARLYCON_TABLE()
 
 #define INIT_TEXT							\
-	*(.init.text)							\
+	*(.init.text .init.text.*)					\
 	*(.text.startup)						\
 	MEM_DISCARD(init.text)
 
@@ -598,7 +658,7 @@
 	MEM_DISCARD(exit.text)
 
 #define EXIT_CALL							\
-	*(.exitcall.exit)
+	KEEP(*(.exitcall.exit))
 
 /*
  * bss (Block Started by Symbol) - uninitialized data
@@ -624,9 +684,7 @@
 	. = ALIGN(bss_align);						\
 	.bss : AT(ADDR(.bss) - LOAD_OFFSET) {				\
 		BSS_FIRST_SECTIONS					\
-		. = ALIGN(PAGE_SIZE);					\
 		*(.bss..page_aligned)					\
-		. = ALIGN(PAGE_SIZE);					\
 		*(.dynbss)						\
 		*(BSS_MAIN)						\
 		*(COMMON)						\
@@ -670,13 +728,8 @@
 		/* DWARF 4 */						\
 		.debug_types	0 : { *(.debug_types) }			\
 		/* DWARF 5 */						\
-		.debug_addr	0 : { *(.debug_addr) }			\
-		.debug_line_str	0 : { *(.debug_line_str) }		\
-		.debug_loclists	0 : { *(.debug_loclists) }		\
 		.debug_macro	0 : { *(.debug_macro) }			\
-		.debug_names	0 : { *(.debug_names) }			\
-		.debug_rnglists	0 : { *(.debug_rnglists) }		\
-		.debug_str_offsets	0 : { *(.debug_str_offsets) }
+		.debug_addr	0 : { *(.debug_addr) }
 
 		/* Stabs debugging sections.  */
 #define STABS_DEBUG							\
@@ -723,6 +776,19 @@
 	}
 #else
 #define ORC_UNWIND_TABLE
+#endif
+
+#ifdef CONFIG_SEC_DEBUG
+#define SECDBG_MEMBERS							\
+	/* Secdbg member table: offsets */				\
+	. = ALIGN(8);							\
+	__secdbg_member_table : AT(ADDR(__secdbg_member_table) - LOAD_OFFSET) { \
+		__start__secdbg_member_table = .;			\
+		KEEP(*(SORT(.secdbg_mbtab.*))) 				\
+		__stop__secdbg_member_table = .;			\
+	}
+#else
+#define SECDBG_MEMBERS
 #endif
 
 #ifdef CONFIG_PM_TRACE

@@ -188,11 +188,8 @@ static bool xenbus_ok(void)
 
 static bool test_reply(struct xb_req_data *req)
 {
-	if (req->state == xb_req_state_got_reply || !xenbus_ok()) {
-		/* read req->state before all other fields */
-		virt_rmb();
+	if (req->state == xb_req_state_got_reply || !xenbus_ok())
 		return true;
-	}
 
 	/* Make sure to reread req->state each time. */
 	barrier();
@@ -202,7 +199,7 @@ static bool test_reply(struct xb_req_data *req)
 
 static void *read_reply(struct xb_req_data *req)
 {
-	do {
+	while (req->state != xb_req_state_got_reply) {
 		wait_event(req->wq, test_reply(req));
 
 		if (!xenbus_ok())
@@ -216,7 +213,7 @@ static void *read_reply(struct xb_req_data *req)
 		if (req->err)
 			return ERR_PTR(req->err);
 
-	} while (req->state != xb_req_state_got_reply);
+	}
 
 	return req->body;
 }
@@ -700,13 +697,9 @@ int xs_watch_msg(struct xs_watch_event *event)
 
 	spin_lock(&watches_lock);
 	event->handle = find_watch(event->token);
-	if (event->handle != NULL &&
-			(!event->handle->will_handle ||
-			 event->handle->will_handle(event->handle,
-				 event->path, event->token))) {
+	if (event->handle != NULL) {
 		spin_lock(&watch_events_lock);
 		list_add_tail(&event->list, &watch_events);
-		event->handle->nr_pending++;
 		wake_up(&watch_events_waitq);
 		spin_unlock(&watch_events_lock);
 	} else
@@ -764,8 +757,6 @@ int register_xenbus_watch(struct xenbus_watch *watch)
 
 	sprintf(token, "%lX", (long)watch);
 
-	watch->nr_pending = 0;
-
 	down_read(&xs_watch_rwsem);
 
 	spin_lock(&watches_lock);
@@ -815,14 +806,11 @@ void unregister_xenbus_watch(struct xenbus_watch *watch)
 
 	/* Cancel pending watch events. */
 	spin_lock(&watch_events_lock);
-	if (watch->nr_pending) {
-		list_for_each_entry_safe(event, tmp, &watch_events, list) {
-			if (event->handle != watch)
-				continue;
-			list_del(&event->list);
-			kfree(event);
-		}
-		watch->nr_pending = 0;
+	list_for_each_entry_safe(event, tmp, &watch_events, list) {
+		if (event->handle != watch)
+			continue;
+		list_del(&event->list);
+		kfree(event);
 	}
 	spin_unlock(&watch_events_lock);
 
@@ -869,6 +857,7 @@ void xs_suspend_cancel(void)
 
 static int xenwatch_thread(void *unused)
 {
+	struct list_head *ent;
 	struct xs_watch_event *event;
 
 	xenwatch_pid = current->pid;
@@ -883,15 +872,13 @@ static int xenwatch_thread(void *unused)
 		mutex_lock(&xenwatch_mutex);
 
 		spin_lock(&watch_events_lock);
-		event = list_first_entry_or_null(&watch_events,
-				struct xs_watch_event, list);
-		if (event) {
-			list_del(&event->list);
-			event->handle->nr_pending--;
-		}
+		ent = watch_events.next;
+		if (ent != &watch_events)
+			list_del(ent);
 		spin_unlock(&watch_events_lock);
 
-		if (event) {
+		if (ent != &watch_events) {
+			event = list_entry(ent, struct xs_watch_event, list);
 			event->handle->callback(event->handle, event->path,
 						event->token);
 			kfree(event);

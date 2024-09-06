@@ -137,10 +137,6 @@
 			dynamic table installation which will install SSDT
 			tables to /sys/firmware/acpi/tables/dynamic.
 
-	acpi_no_watchdog	[HW,ACPI,WDT]
-			Ignore the ACPI-based watchdog interface (WDAT) and let
-			a native driver control the watchdog device instead.
-
 	acpi_rsdp=	[ACPI,EFI,KEXEC]
 			Pass the RSDP address to the kernel, mostly used
 			on machines running EFI runtime service to boot the
@@ -552,7 +548,7 @@
 			loops can be debugged more effectively on production
 			systems.
 
-	clearcpuid=BITNUM[,BITNUM...] [X86]
+	clearcpuid=BITNUM [X86]
 			Disable CPUID feature X for the kernel. See
 			arch/x86/include/asm/cpufeatures.h for the valid bit
 			numbers. Note the Linux specific bits are not necessarily
@@ -780,6 +776,10 @@
 			on: enable the feature
 
 	debugpat	[X86] Enable PAT debugging
+
+	decnet.addr=	[HW,NET]
+			Format: <area>[,<node>]
+			See also Documentation/networking/decnet.txt.
 
 	default_hugepagesz=
 			[same as hugepagesz=] The size of the default
@@ -1231,26 +1231,6 @@
 	gart_fix_e820=  [X86_64] disable the fix e820 for K8 GART
 			Format: off | on
 			default: on
-
-	gather_data_sampling=
-			[X86,INTEL] Control the Gather Data Sampling (GDS)
-			mitigation.
-
-			Gather Data Sampling is a hardware vulnerability which
-			allows unprivileged speculative access to data which was
-			previously stored in vector registers.
-
-			This issue is mitigated by default in updated microcode.
-			The mitigation may have a performance impact but can be
-			disabled. On systems without the microcode mitigation
-			disabling AVX serves as a mitigation.
-
-			force:	Disable AVX to mitigate systems without
-				microcode mitigation. No effect if the microcode
-				mitigation is present. Known to cause crashes in
-				userspace with buggy AVX enumeration.
-
-			off:    Disable GDS mitigation.
 
 	gcov_persist=	[GCOV] When non-zero (default), profiling data for
 			kernel modules is saved and remains accessible via
@@ -1865,37 +1845,12 @@
 			Built with CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF=y,
 			the default is off.
 
-	kpti=		[ARM64] Control page table isolation of user
-			and kernel address spaces.
-			Default: enabled on cores which need mitigation.
-			0: force disabled
-			1: force enabled
-
 	kvm.ignore_msrs=[KVM] Ignore guest accesses to unhandled MSRs.
 			Default is 0 (don't ignore, but inject #GP)
 
 	kvm.mmu_audit=	[KVM] This is a R/W parameter which allows audit
 			KVM MMU at runtime.
 			Default is 0 (off)
-
-	kvm.nx_huge_pages=
-			[KVM] Controls the software workaround for the
-			X86_BUG_ITLB_MULTIHIT bug.
-			force	: Always deploy workaround.
-			off	: Never deploy workaround.
-			auto    : Deploy workaround based on the presence of
-				  X86_BUG_ITLB_MULTIHIT.
-
-			Default is 'auto'.
-
-			If the software workaround is enabled for the host,
-			guests do need not to enable it for nested guests.
-
-	kvm.nx_huge_pages_recovery_ratio=
-			[KVM] Controls how many 4KiB pages are periodically zapped
-			back to huge pages.  0 disables the recovery, otherwise if
-			the value is N KVM will zap 1/Nth of the 4KiB pages every
-			minute.  The default is 60.
 
 	kvm-amd.nested=	[KVM,AMD] Allow nested virtualization in KVM/SVM.
 			Default is 1 (enabled)
@@ -1921,12 +1876,8 @@
 			Default is 1 (enabled)
 
 	kvm-intel.emulate_invalid_guest_state=
-			[KVM,Intel] Disable emulation of invalid guest state.
-			Ignored if kvm-intel.enable_unrestricted_guest=1, as
-			guest state is never invalid for unrestricted guests.
-			This param doesn't apply to nested guests (L2), as KVM
-			never emulates invalid L2 guest state.
-			Default is 1 (enabled)
+			[KVM,Intel] Enable emulation of invalid guest states
+			Default is 0 (disabled)
 
 	kvm-intel.flexpriority=
 			[KVM,Intel] Disable FlexPriority feature (TPR shadow).
@@ -2020,7 +1971,7 @@
 
 			Default is 'flush'.
 
-			For details see: Documentation/admin-guide/hw-vuln/l1tf.rst
+			For details see: Documentation/admin-guide/l1tf.rst
 
 	l2cr=		[PPC]
 
@@ -2263,38 +2214,6 @@
 			Format: <first>,<last>
 			Specifies range of consoles to be captured by the MDA.
 
-	mds=		[X86,INTEL]
-			Control mitigation for the Micro-architectural Data
-			Sampling (MDS) vulnerability.
-
-			Certain CPUs are vulnerable to an exploit against CPU
-			internal buffers which can forward information to a
-			disclosure gadget under certain conditions.
-
-			In vulnerable processors, the speculatively
-			forwarded data can be used in a cache side channel
-			attack, to access data to which the attacker does
-			not have direct access.
-
-			This parameter controls the MDS mitigation. The
-			options are:
-
-			full       - Enable MDS mitigation on vulnerable CPUs
-			full,nosmt - Enable MDS mitigation and disable
-				     SMT on vulnerable CPUs
-			off        - Unconditionally disable MDS mitigation
-
-			On TAA-affected machines, mds=off can be prevented by
-			an active TAA mitigation as both vulnerabilities are
-			mitigated with the same mechanism so in order to disable
-			this mitigation, you need to specify tsx_async_abort=off
-			too.
-
-			Not specifying this option is equivalent to
-			mds=full.
-
-			For details see: Documentation/admin-guide/hw-vuln/mds.rst
-
 	mem=nn[KMG]	[KNL,BOOT] Force usage of a specific amount of memory
 			Amount of memory to be used when the kernel is not able
 			to see the whole system memory or for test.
@@ -2453,28 +2372,17 @@
 				Disable all optional CPU mitigations.  This
 				improves system performance, but it may also
 				expose users to several CPU vulnerabilities.
-				Equivalent to: gather_data_sampling=off [X86]
+				Equivalent to: nopti [X86,PPC]
 					       kpti=0 [ARM64]
-					       kvm.nx_huge_pages=off [X86]
-					       l1tf=off [X86]
-					       mds=off [X86]
-					       mmio_stale_data=off [X86]
-					       no_entry_flush [PPC]
-					       no_uaccess_flush [PPC]
-					       nobp=0 [S390]
-					       nopti [X86,PPC]
 					       nospectre_v1 [PPC]
+					       nobp=0 [S390]
 					       nospectre_v1 [X86]
 					       nospectre_v2 [X86,PPC,S390,ARM64]
-					       spec_store_bypass_disable=off [X86,PPC]
 					       spectre_v2_user=off [X86]
+					       spec_store_bypass_disable=off [X86,PPC]
 					       ssbd=force-off [ARM64]
-					       tsx_async_abort=off [X86]
-
-				Exceptions:
-					       This does not have any effect on
-					       kvm.nx_huge_pages when
-					       kvm.nx_huge_pages=force.
+					       l1tf=off [X86]
+					       mds=off [X86]
 
 			auto (default)
 				Mitigate all CPU vulnerabilities, but leave SMT
@@ -2490,8 +2398,6 @@
 				be fully mitigated, even if it means losing SMT.
 				Equivalent to: l1tf=flush,nosmt [X86]
 					       mds=full,nosmt [X86]
-					       tsx_async_abort=full,nosmt [X86]
-					       mmio_stale_data=full,nosmt [X86]
 
 	mminit_loglevel=
 			[KNL] When CONFIG_DEBUG_MEMORY_INIT is set, this
@@ -2500,40 +2406,6 @@
 			of 0 disables mminit logging and a level of 4 will
 			log everything. Information is printed at KERN_DEBUG
 			so loglevel=8 may also need to be specified.
-
-	mmio_stale_data=
-			[X86,INTEL] Control mitigation for the Processor
-			MMIO Stale Data vulnerabilities.
-
-			Processor MMIO Stale Data is a class of
-			vulnerabilities that may expose data after an MMIO
-			operation. Exposed data could originate or end in
-			the same CPU buffers as affected by MDS and TAA.
-			Therefore, similar to MDS and TAA, the mitigation
-			is to clear the affected CPU buffers.
-
-			This parameter controls the mitigation. The
-			options are:
-
-			full       - Enable mitigation on vulnerable CPUs
-
-			full,nosmt - Enable mitigation and disable SMT on
-				     vulnerable CPUs.
-
-			off        - Unconditionally disable mitigation
-
-			On MDS or TAA affected machines,
-			mmio_stale_data=off can be prevented by an active
-			MDS or TAA mitigation as these vulnerabilities are
-			mitigated with the same mechanism so in order to
-			disable this mitigation, you need to specify
-			mds=off and tsx_async_abort=off too.
-
-			Not specifying this option is equivalent to
-			mmio_stale_data=full.
-
-			For details see:
-			Documentation/admin-guide/hw-vuln/processor_mmio_stale_data.rst
 
 	module.sig_enforce
 			[KNL] When CONFIG_MODULE_SIG is set, this means that
@@ -2808,8 +2680,6 @@
 
 	noefi		Disable EFI runtime services support.
 
-	no_entry_flush  [PPC] Don't flush the L1-D cache when entering the kernel.
-
 	noexec		[IA-64]
 
 	noexec		[X86]
@@ -2858,9 +2728,6 @@
 
 	nospec_store_bypass_disable
 			[HW] Disable all mitigations for the Speculative Store Bypass vulnerability
-
-	no_uaccess_flush
-	                [PPC] Don't flush the L1-D cache after accessing user data.
 
 	noxsave		[BUGS=X86] Disables x86 extended register state save
 			and restore using xsave. The kernel will fallback to
@@ -3496,6 +3363,10 @@
 			before loading.
 			See Documentation/blockdev/ramdisk.txt.
 
+	psi=		[KNL] Enable or disable pressure stall information
+			tracking.
+			Format: <bool>
+
 	psmouse.proto=	[HW,MOUSE] Highest PS2 mouse protocol extension to
 			probe for; one of (bare|imps|exps|lifebook|any).
 	psmouse.rate=	[HW,MOUSE] Set desired mouse report rate, in reports
@@ -3542,18 +3413,6 @@
 
 	ramdisk_size=	[RAM] Sizes of RAM disks in kilobytes
 			See Documentation/blockdev/ramdisk.txt.
-
-	random.trust_cpu={on,off}
-			[KNL] Enable or disable trusting the use of the
-			CPU's random number generator (if available) to
-			fully seed the kernel's CRNG. Default is controlled
-			by CONFIG_RANDOM_TRUST_CPU.
-
-	random.trust_bootloader={on,off}
-			[KNL] Enable or disable trusting the use of a
-			seed passed by the bootloader (if available) to
-			fully seed the kernel's CRNG. Default is controlled
-			by CONFIG_RANDOM_TRUST_BOOTLOADER.
 
 	ras=option[,option,...]	[KNL] RAS-specific options
 
@@ -3909,13 +3768,6 @@
 			Run specified binary instead of /init from the ramdisk,
 			used for early userspace startup. See initrd.
 
-	rdrand=		[X86]
-			force - Override the decision by the kernel to hide the
-				advertisement of RDRAND support (this affects
-				certain AMD processors because of buggy BIOS
-				support, specifically around the suspend/resume
-				path).
-
 	rdt=		[HW,X86,RDT]
 			Turn on/off individual RDT features. List is:
 			cmt, mbmtotal, mbmlocal, l3cat, l3cdp, l2cat, mba.
@@ -3981,18 +3833,6 @@
 				during restoration read-only).
 
 	retain_initrd	[RAM] Keep initrd memory after extraction
-
-	retbleed=	[X86] Control mitigation of RETBleed (Arbitrary
-			Speculative Code Execution with Return Instructions)
-			vulnerability.
-
-			off         - unconditionally disable
-			auto        - automatically select a migitation
-
-			Selecting 'auto' will choose a mitigation method at run
-			time according to the CPU.
-
-			Not specifying this option is equivalent to retbleed=auto.
 
 	rfkill.default_state=
 		0	"airplane mode".  All wifi, bluetooth, wimax, gps, fm,
@@ -4227,13 +4067,8 @@
 			Specific mitigations can also be selected manually:
 
 			retpoline	  - replace indirect branches
-			retpoline,generic - Retpolines
-			retpoline,lfence  - LFENCE; indirect branch
-			retpoline,amd     - alias for retpoline,lfence
-			eibrs		  - enhanced IBRS
-			eibrs,retpoline   - enhanced IBRS + Retpolines
-			eibrs,lfence      - enhanced IBRS + LFENCE
-			ibrs		  - use IBRS to protect kernel
+			retpoline,generic - google's original retpoline
+			retpoline,amd     - AMD-specific minimal thunk
 
 			Not specifying this option is equivalent to
 			spectre_v2=auto.
@@ -4326,26 +4161,6 @@
 	spia_fio_base=
 	spia_pedr=
 	spia_peddr=
-
-	srbds=		[X86,INTEL]
-			Control the Special Register Buffer Data Sampling
-			(SRBDS) mitigation.
-
-			Certain CPUs are vulnerable to an MDS-like
-			exploit which can leak bits from the random
-			number generator.
-
-			By default, this issue is mitigated by
-			microcode.  However, the microcode fix can cause
-			the RDRAND and RDSEED instructions to become
-			much slower.  Among other effects, this will
-			result in reduced throughput from /dev/urandom.
-
-			The microcode mitigation can be disabled with
-			the following option:
-
-			off:    Disable mitigation and remove
-				performance impact to RDRAND and RDSEED
 
 	srcutree.counter_wrap_check [KNL]
 			Specifies how frequently to check for
@@ -4661,76 +4476,6 @@
 			platforms where RDTSC is slow and this accounting
 			can add overhead.
 
-	tsx=		[X86] Control Transactional Synchronization
-			Extensions (TSX) feature in Intel processors that
-			support TSX control.
-
-			This parameter controls the TSX feature. The options are:
-
-			on	- Enable TSX on the system. Although there are
-				mitigations for all known security vulnerabilities,
-				TSX has been known to be an accelerator for
-				several previous speculation-related CVEs, and
-				so there may be unknown	security risks associated
-				with leaving it enabled.
-
-			off	- Disable TSX on the system. (Note that this
-				option takes effect only on newer CPUs which are
-				not vulnerable to MDS, i.e., have
-				MSR_IA32_ARCH_CAPABILITIES.MDS_NO=1 and which get
-				the new IA32_TSX_CTRL MSR through a microcode
-				update. This new MSR allows for the reliable
-				deactivation of the TSX functionality.)
-
-			auto	- Disable TSX if X86_BUG_TAA is present,
-				  otherwise enable TSX on the system.
-
-			Not specifying this option is equivalent to tsx=off.
-
-			See Documentation/admin-guide/hw-vuln/tsx_async_abort.rst
-			for more details.
-
-	tsx_async_abort= [X86,INTEL] Control mitigation for the TSX Async
-			Abort (TAA) vulnerability.
-
-			Similar to Micro-architectural Data Sampling (MDS)
-			certain CPUs that support Transactional
-			Synchronization Extensions (TSX) are vulnerable to an
-			exploit against CPU internal buffers which can forward
-			information to a disclosure gadget under certain
-			conditions.
-
-			In vulnerable processors, the speculatively forwarded
-			data can be used in a cache side channel attack, to
-			access data to which the attacker does not have direct
-			access.
-
-			This parameter controls the TAA mitigation.  The
-			options are:
-
-			full       - Enable TAA mitigation on vulnerable CPUs
-				     if TSX is enabled.
-
-			full,nosmt - Enable TAA mitigation and disable SMT on
-				     vulnerable CPUs. If TSX is disabled, SMT
-				     is not disabled because CPU is not
-				     vulnerable to cross-thread TAA attacks.
-			off        - Unconditionally disable TAA mitigation
-
-			On MDS-affected machines, tsx_async_abort=off can be
-			prevented by an active MDS mitigation as both vulnerabilities
-			are mitigated with the same mechanism so in order to disable
-			this mitigation, you need to specify mds=off too.
-
-			Not specifying this option is equivalent to
-			tsx_async_abort=full.  On CPUs which are MDS affected
-			and deploy MDS mitigation, TAA mitigation is not
-			required and doesn't provide any additional
-			mitigation.
-
-			For details see:
-			Documentation/admin-guide/hw-vuln/tsx_async_abort.rst
-
 	turbografx.map[2|3]=	[HW,JOY]
 			TurboGraFX parallel port interface
 			Format:
@@ -4816,13 +4561,13 @@
 			Flags is a set of characters, each corresponding
 			to a common usb-storage quirk flag as follows:
 				a = SANE_SENSE (collect more than 18 bytes
-					of sense data, not on uas);
+					of sense data);
 				b = BAD_SENSE (don't collect more than 18
-					bytes of sense data, not on uas);
+					bytes of sense data);
 				c = FIX_CAPACITY (decrease the reported
 					device capacity by one sector);
 				d = NO_READ_DISC_INFO (don't use
-					READ_DISC_INFO command, not on uas);
+					READ_DISC_INFO command);
 				e = NO_READ_CAPACITY_16 (don't use
 					READ_CAPACITY_16 command);
 				f = NO_REPORT_OPCODES (don't use report opcodes
@@ -4836,20 +4581,18 @@
 					device);
 				j = NO_REPORT_LUNS (don't use report luns
 					command, uas only);
-				k = NO_SAME (do not use WRITE_SAME, uas only)
 				l = NOT_LOCKABLE (don't try to lock and
-					unlock ejectable media, not on uas);
+					unlock ejectable media);
 				m = MAX_SECTORS_64 (don't transfer more
-					than 64 sectors = 32 KB at a time,
-					not on uas);
+					than 64 sectors = 32 KB at a time);
 				n = INITIAL_READ10 (force a retry of the
-					initial READ(10) command, not on uas);
+					initial READ(10) command);
 				o = CAPACITY_OK (accept the capacity
-					reported by the device, not on uas);
+					reported by the device);
 				p = WRITE_CACHE (the device cache is ON
-					by default, not on uas);
+					by default);
 				r = IGNORE_RESIDUE (the device reports
-					bogus residue values, not on uas);
+					bogus residue values);
 				s = SINGLE_LUN (the device has only one
 					Logical Unit);
 				t = NO_ATA_1X (don't allow ATA(12) and ATA(16)
@@ -4858,8 +4601,7 @@
 				w = NO_WP_DETECT (don't test whether the
 					medium is write-protected).
 				y = ALWAYS_SYNC (issue a SYNCHRONIZE_CACHE
-					even if the device claims no cache,
-					not on uas)
+					even if the device claims no cache)
 			Example: quirks=0419:aaf5:rl,0421:0433:rc
 
 	user_debug=	[KNL,ARM]
@@ -5104,10 +4846,6 @@
 				the unplug protocol
 			never -- do not unplug even if version check succeeds
 
-	xen_legacy_crash	[X86,XEN]
-			Crash from Xen panic notifier, without executing late
-			panic() code such as dumping handler.
-
 	xen_nopvspin	[X86,XEN]
 			Disables the ticketlock slowpath using Xen PV
 			optimizations.
@@ -5115,21 +4853,6 @@
 	xen_nopv	[X86]
 			Disables the PV optimizations forcing the HVM guest to
 			run as generic HVM guest with no PV drivers.
-
-	xen.balloon_boot_timeout= [XEN]
-			The time (in seconds) to wait before giving up to boot
-			in case initial ballooning fails to free enough memory.
-			Applies only when running as HVM or PVH guest and
-			started with less memory configured than allowed at
-			max. Default is 180.
-
-	xen.event_eoi_delay=	[XEN]
-			How long to delay EOI handling in case of event
-			storms (jiffies). Default is 10.
-
-	xen.event_loop_timeout=	[XEN]
-			After which time (jiffies) the event handling loop
-			should start to delay EOI handling. Default is 2.
 
 	xirc2ps_cs=	[NET,PCMCIA]
 			Format:

@@ -63,7 +63,6 @@
 #include <asm/byteorder.h>  
 #include <linux/vmalloc.h>
 #include <linux/jiffies.h>
-#include <linux/nospec.h>
 #include "iphase.h"		  
 #include "suni.h"		  
 #define swap_byte_order(x) (((x & 0xff) << 8) | ((x & 0xff00) >> 8))
@@ -2290,21 +2289,19 @@ static int get_esi(struct atm_dev *dev)
 static int reset_sar(struct atm_dev *dev)  
 {  
 	IADEV *iadev;  
-	int i, error;
+	int i, error = 1;  
 	unsigned int pci[64];  
 	  
 	iadev = INPH_IA_DEV(dev);  
-	for (i = 0; i < 64; i++) {
-		error = pci_read_config_dword(iadev->pci, i * 4, &pci[i]);
-		if (error != PCIBIOS_SUCCESSFUL)
-			return error;
-	}
+	for(i=0; i<64; i++)  
+	  if ((error = pci_read_config_dword(iadev->pci,  
+				i*4, &pci[i])) != PCIBIOS_SUCCESSFUL)  
+  	      return error;  
 	writel(0, iadev->reg+IPHASE5575_EXT_RESET);  
-	for (i = 0; i < 64; i++) {
-		error = pci_write_config_dword(iadev->pci, i * 4, pci[i]);
-		if (error != PCIBIOS_SUCCESSFUL)
-			return error;
-	}
+	for(i=0; i<64; i++)  
+	  if ((error = pci_write_config_dword(iadev->pci,  
+					i*4, pci[i])) != PCIBIOS_SUCCESSFUL)  
+	    return error;  
 	udelay(5);  
 	return 0;  
 }  
@@ -2763,11 +2760,8 @@ static int ia_ioctl(struct atm_dev *dev, unsigned int cmd, void __user *arg)
    }
    if (copy_from_user(&ia_cmds, arg, sizeof ia_cmds)) return -EFAULT; 
    board = ia_cmds.status;
-
-	if ((board < 0) || (board > iadev_count))
-		board = 0;
-	board = array_index_nospec(board, iadev_count + 1);
-
+   if ((board < 0) || (board > iadev_count))
+         board = 0;    
    iadev = ia_dev[board];
    switch (ia_cmds.cmd) {
    case MEMDUMP:
@@ -3303,7 +3297,7 @@ static void __exit ia_module_exit(void)
 {
 	pci_unregister_driver(&ia_driver);
 
-	del_timer_sync(&ia_timer);
+        del_timer(&ia_timer);
 }
 
 module_init(ia_module_init);

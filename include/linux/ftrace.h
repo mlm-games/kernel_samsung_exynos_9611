@@ -254,8 +254,16 @@ static inline int ftrace_function_local_disabled(struct ftrace_ops *ops)
 	return *this_cpu_ptr(ops->disabled);
 }
 
+#ifdef CONFIG_CFI_CLANG
+/* Use a C stub with the correct type for CFI */
+static inline void ftrace_stub(unsigned long a0, unsigned long a1,
+			       struct ftrace_ops *op, struct pt_regs *regs)
+{
+}
+#else
 extern void ftrace_stub(unsigned long a0, unsigned long a1,
 			struct ftrace_ops *op, struct pt_regs *regs);
+#endif
 
 #else /* !CONFIG_FUNCTION_TRACER */
 /*
@@ -723,7 +731,7 @@ static inline void __ftrace_enabled_restore(int enabled)
 #define CALLER_ADDR5 ((unsigned long)ftrace_return_address(5))
 #define CALLER_ADDR6 ((unsigned long)ftrace_return_address(6))
 
-static __always_inline unsigned long get_lock_parent_ip(void)
+static inline unsigned long get_lock_parent_ip(void)
 {
 	unsigned long addr = CALLER_ADDR0;
 
@@ -743,7 +751,8 @@ static __always_inline unsigned long get_lock_parent_ip(void)
   static inline void time_hardirqs_off(unsigned long a0, unsigned long a1) { }
 #endif
 
-#ifdef CONFIG_PREEMPT_TRACER
+#if defined(CONFIG_PREEMPT_TRACER) || \
+	(defined(CONFIG_DEBUG_PREEMPT) && defined(CONFIG_PREEMPTIRQ_EVENTS))
   extern void trace_preempt_on(unsigned long a0, unsigned long a1);
   extern void trace_preempt_off(unsigned long a0, unsigned long a1);
 #else
@@ -792,9 +801,7 @@ typedef int (*trace_func_graph_ent_t)(struct ftrace_graph_ent *); /* entry */
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 
 /* for init task */
-#define INIT_FTRACE_GRAPH				\
-	.ret_stack		= NULL,			\
-	.tracing_graph_pause	= ATOMIC_INIT(0),
+#define INIT_FTRACE_GRAPH		.ret_stack = NULL,
 
 /*
  * Stack of return addresses for functions

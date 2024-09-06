@@ -36,7 +36,6 @@
 #include <linux/slab.h>
 #include <linux/rtnetlink.h>
 #include <linux/netpoll.h>
-#include <linux/reciprocal_div.h>
 
 #include <net/arp.h>
 #include <net/route.h>
@@ -55,11 +54,9 @@
 #define LINKCHANGE_INT (2 * HZ)
 #define VF_TAKEOVER_INT (HZ / 10)
 
-static unsigned int ring_size __ro_after_init = 128;
-module_param(ring_size, uint, S_IRUGO);
+static int ring_size = 128;
+module_param(ring_size, int, S_IRUGO);
 MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
-unsigned int netvsc_ring_bytes __ro_after_init;
-struct reciprocal_value netvsc_ring_reciprocal __ro_after_init;
 
 static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				NETIF_MSG_LINK | NETIF_MSG_IFUP |
@@ -285,9 +282,9 @@ static inline u32 netvsc_get_hash(
 		else if (flow.basic.n_proto == htons(ETH_P_IPV6))
 			hash = jhash2((u32 *)&flow.addrs.v6addrs, 8, hashrnd);
 		else
-			return 0;
+			hash = 0;
 
-		__skb_set_sw_hash(skb, hash, false);
+		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
 	}
 
 	return hash;
@@ -368,7 +365,7 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb,
 	}
 	rcu_read_unlock();
 
-	while (txq >= ndev->real_num_tx_queues)
+	while (unlikely(txq >= ndev->real_num_tx_queues))
 		txq -= ndev->real_num_tx_queues;
 
 	return txq;
@@ -503,7 +500,7 @@ static int netvsc_vf_xmit(struct net_device *net, struct net_device *vf_netdev,
 	int rc;
 
 	skb->dev = vf_netdev;
-	skb_record_rx_queue(skb, qdisc_skb_cb(skb)->slave_dev_queue_mapping);
+	skb->queue_mapping = qdisc_skb_cb(skb)->slave_dev_queue_mapping;
 
 	rc = dev_queue_xmit(skb);
 	if (likely(rc == NET_XMIT_SUCCESS || rc == NET_XMIT_CN)) {
@@ -535,13 +532,12 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	u32 hash;
 	struct hv_page_buffer pb[MAX_PAGE_BUFFER_COUNT];
 
-	/* If VF is present and up then redirect packets to it.
-	 * Skip the VF if it is marked down or has no carrier.
-	 * If netpoll is in uses, then VF can not be used either.
+	/* if VF is present and up then redirect packets
+	 * already called with rcu_read_lock_bh
 	 */
 	vf_netdev = rcu_dereference_bh(net_device_ctx->vf_netdev);
 	if (vf_netdev && netif_running(vf_netdev) &&
-	    netif_carrier_ok(vf_netdev) && !netpoll_tx_running(net))
+	    !netpoll_tx_running(net))
 		return netvsc_vf_xmit(net, vf_netdev, skb);
 
 	/* We will atmost need two pages to describe the rndis
@@ -806,7 +802,8 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 	    skb->protocol == htons(ETH_P_IP))
 		netvsc_comp_ipcsum(skb);
 
-	/* Do L4 checksum offload if enabled and present. */
+	/* Do L4 checksum offload if enabled and present.
+	 */
 	if (csum_info && (net->features & NETIF_F_RXCSUM)) {
 		if (csum_info->receive.tcp_checksum_succeeded ||
 		    csum_info->receive.udp_checksum_succeeded)
@@ -972,7 +969,7 @@ static int netvsc_attach(struct net_device *ndev,
 	if (netif_running(ndev)) {
 		ret = rndis_filter_open(nvdev);
 		if (ret)
-			goto err;
+			return ret;
 
 		rdev = nvdev->extension;
 		if (!rdev->link_state)
@@ -980,13 +977,6 @@ static int netvsc_attach(struct net_device *ndev,
 	}
 
 	return 0;
-
-err:
-	netif_device_detach(ndev);
-
-	rndis_filter_device_remove(hdev, nvdev);
-
-	return ret;
 }
 
 static int netvsc_set_channels(struct net_device *net,
@@ -1016,6 +1006,7 @@ static int netvsc_set_channels(struct net_device *net,
 
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.num_chn = count;
+	device_info.ring_size = ring_size;
 	device_info.send_sections = nvdev->send_section_cnt;
 	device_info.send_section_size = nvdev->send_section_size;
 	device_info.recv_sections = nvdev->recv_section_cnt;
@@ -1113,6 +1104,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	}
 
 	memset(&device_info, 0, sizeof(device_info));
+	device_info.ring_size = ring_size;
 	device_info.num_chn = nvdev->num_chn;
 	device_info.send_sections = nvdev->send_section_cnt;
 	device_info.send_section_size = nvdev->send_section_size;
@@ -1178,15 +1170,12 @@ static void netvsc_get_stats64(struct net_device *net,
 			       struct rtnl_link_stats64 *t)
 {
 	struct net_device_context *ndev_ctx = netdev_priv(net);
-	struct netvsc_device *nvdev;
+	struct netvsc_device *nvdev = rcu_dereference_rtnl(ndev_ctx->nvdev);
 	struct netvsc_vf_pcpu_stats vf_tot;
 	int i;
 
-	rcu_read_lock();
-
-	nvdev = rcu_dereference(ndev_ctx->nvdev);
 	if (!nvdev)
-		goto out;
+		return;
 
 	netdev_stats_to_stats64(t, &net->stats);
 
@@ -1225,8 +1214,6 @@ static void netvsc_get_stats64(struct net_device *net,
 		t->rx_packets	+= packets;
 		t->multicast	+= multicast;
 	}
-out:
-	rcu_read_unlock();
 }
 
 static int netvsc_set_mac_addr(struct net_device *ndev, void *p)
@@ -1529,7 +1516,7 @@ static int netvsc_get_rxfh(struct net_device *dev, u32 *indir, u8 *key,
 	rndis_dev = ndev->extension;
 	if (indir) {
 		for (i = 0; i < ITAB_NUM; i++)
-			indir[i] = ndc->rx_table[i];
+			indir[i] = rndis_dev->rx_table[i];
 	}
 
 	if (key)
@@ -1559,7 +1546,7 @@ static int netvsc_set_rxfh(struct net_device *dev, const u32 *indir,
 				return -EINVAL;
 
 		for (i = 0; i < ITAB_NUM; i++)
-			ndc->rx_table[i] = indir[i];
+			rndis_dev->rx_table[i] = indir[i];
 	}
 
 	if (!key) {
@@ -1632,6 +1619,7 @@ static int netvsc_set_ringparam(struct net_device *ndev,
 
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.num_chn = nvdev->num_chn;
+	device_info.ring_size = ring_size;
 	device_info.send_sections = new_tx;
 	device_info.send_section_size = nvdev->send_section_size;
 	device_info.recv_sections = new_rx;
@@ -1839,12 +1827,6 @@ static rx_handler_result_t netvsc_vf_handle_frame(struct sk_buff **pskb)
 	struct net_device_context *ndev_ctx = netdev_priv(ndev);
 	struct netvsc_vf_pcpu_stats *pcpu_stats
 		 = this_cpu_ptr(ndev_ctx->vf_stats);
-
-	skb = skb_share_check(skb, GFP_ATOMIC);
-	if (unlikely(!skb))
-		return RX_HANDLER_CONSUMED;
-
-	*pskb = skb;
 
 	skb->dev = ndev;
 
@@ -2082,6 +2064,7 @@ static int netvsc_probe(struct hv_device *dev,
 
 	/* Notify the netvsc driver of the new device */
 	memset(&device_info, 0, sizeof(device_info));
+	device_info.ring_size = ring_size;
 	device_info.num_chn = VRSS_CHANNEL_DEFAULT;
 	device_info.send_sections = NETVSC_DEFAULT_TX;
 	device_info.send_section_size = NETVSC_SEND_SECTION_SIZE;
@@ -2231,7 +2214,8 @@ static int netvsc_netdev_event(struct notifier_block *this,
 		return NOTIFY_DONE;
 
 	/* Avoid Bonding master dev with same MAC registering as VF */
-	if (netif_is_bond_master(event_dev))
+	if ((event_dev->priv_flags & IFF_BONDING) &&
+	    (event_dev->flags & IFF_MASTER))
 		return NOTIFY_DONE;
 
 	switch (event) {
@@ -2263,23 +2247,16 @@ static int __init netvsc_drv_init(void)
 
 	if (ring_size < RING_SIZE_MIN) {
 		ring_size = RING_SIZE_MIN;
-		pr_info("Increased ring_size to %u (min allowed)\n",
+		pr_info("Increased ring_size to %d (min allowed)\n",
 			ring_size);
 	}
-	netvsc_ring_bytes = ring_size * PAGE_SIZE;
-	netvsc_ring_reciprocal = reciprocal_value(netvsc_ring_bytes);
+	ret = vmbus_driver_register(&netvsc_drv);
+
+	if (ret)
+		return ret;
 
 	register_netdevice_notifier(&netvsc_netdev_notifier);
-
-	ret = vmbus_driver_register(&netvsc_drv);
-	if (ret)
-		goto err_vmbus_reg;
-
 	return 0;
-
-err_vmbus_reg:
-	unregister_netdevice_notifier(&netvsc_netdev_notifier);
-	return ret;
 }
 
 MODULE_LICENSE("GPL");

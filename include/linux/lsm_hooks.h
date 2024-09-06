@@ -466,12 +466,6 @@
  *	simple integer value.  When @arg represents a user space pointer, it
  *	should never be used by the security module.
  *	Return 0 if permission is granted.
- * @file_ioctl_compat:
- *	@file contains the file structure.
- *	@cmd contains the operation to perform.
- *	@arg contains the operational arguments.
- *	Check permission for a compat ioctl operation on @file.
- *	Return 0 if permission is granted.
  * @mmap_addr :
  *	Check permissions for a mmap operation at @addr.
  *	@addr contains virtual address that will be used for the operation.
@@ -1357,6 +1351,40 @@
  *	@inode we wish to get the security context of.
  *	@ctx is a pointer in which to place the allocated security context.
  *	@ctxlen points to the place to put the length of @ctx.
+ *
+ * Security hooks for using the eBPF maps and programs functionalities through
+ * eBPF syscalls.
+ *
+ * @bpf:
+ *	Do a initial check for all bpf syscalls after the attribute is copied
+ *	into the kernel. The actual security module can implement their own
+ *	rules to check the specific cmd they need.
+ *
+ * @bpf_map:
+ *	Do a check when the kernel generate and return a file descriptor for
+ *	eBPF maps.
+ *
+ *	@map: bpf map that we want to access
+ *	@mask: the access flags
+ *
+ * @bpf_prog:
+ *	Do a check when the kernel generate and return a file descriptor for
+ *	eBPF programs.
+ *
+ *	@prog: bpf prog that userspace want to use.
+ *
+ * @bpf_map_alloc_security:
+ *	Initialize the security field inside bpf map.
+ *
+ * @bpf_map_free_security:
+ *	Clean up the security information stored inside bpf map.
+ *
+ * @bpf_prog_alloc_security:
+ *	Initialize the security field inside bpf program.
+ *
+ * @bpf_prog_free_security:
+ *	Clean up the security information stored inside bpf prog.
+ *
  */
 union security_list_options {
 	int (*binder_set_context_mgr)(const struct cred *mgr);
@@ -1491,8 +1519,6 @@ union security_list_options {
 	int (*file_alloc_security)(struct file *file);
 	void (*file_free_security)(struct file *file);
 	int (*file_ioctl)(struct file *file, unsigned int cmd,
-				unsigned long arg);
-	int (*file_ioctl_compat)(struct file *file, unsigned int cmd,
 				unsigned long arg);
 	int (*mmap_addr)(unsigned long addr);
 	int (*mmap_file)(struct file *file, unsigned long reqprot,
@@ -1690,6 +1716,17 @@ union security_list_options {
 				struct audit_context *actx);
 	void (*audit_rule_free)(void *lsmrule);
 #endif /* CONFIG_AUDIT */
+
+#ifdef CONFIG_BPF_SYSCALL
+	int (*bpf)(int cmd, union bpf_attr *attr,
+				 unsigned int size);
+	int (*bpf_map)(struct bpf_map *map, fmode_t fmode);
+	int (*bpf_prog)(struct bpf_prog *prog);
+	int (*bpf_map_alloc_security)(struct bpf_map *map);
+	void (*bpf_map_free_security)(struct bpf_map *map);
+	int (*bpf_prog_alloc_security)(struct bpf_prog_aux *aux);
+	void (*bpf_prog_free_security)(struct bpf_prog_aux *aux);
+#endif /* CONFIG_BPF_SYSCALL */
 };
 
 struct security_hook_heads {
@@ -1772,7 +1809,6 @@ struct security_hook_heads {
 	struct list_head file_alloc_security;
 	struct list_head file_free_security;
 	struct list_head file_ioctl;
-	struct list_head file_ioctl_compat;
 	struct list_head mmap_addr;
 	struct list_head mmap_file;
 	struct list_head file_mprotect;
@@ -1910,6 +1946,15 @@ struct security_hook_heads {
 	struct list_head audit_rule_match;
 	struct list_head audit_rule_free;
 #endif /* CONFIG_AUDIT */
+#ifdef CONFIG_BPF_SYSCALL
+	struct list_head bpf;
+	struct list_head bpf_map;
+	struct list_head bpf_prog;
+	struct list_head bpf_map_alloc_security;
+	struct list_head bpf_map_free_security;
+	struct list_head bpf_prog_alloc_security;
+	struct list_head bpf_prog_free_security;
+#endif /* CONFIG_BPF_SYSCALL */
 } __randomize_layout;
 
 /*

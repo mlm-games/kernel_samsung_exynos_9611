@@ -22,7 +22,7 @@
  * | Queue Command and IO tracing |       0x3074       | 0x300b         |
  * |                              |                    | 0x3027-0x3028  |
  * |                              |                    | 0x303d-0x3041  |
- * |                              |                    | 0x302e,0x3033  |
+ * |                              |                    | 0x302d,0x3033  |
  * |                              |                    | 0x3036,0x3038  |
  * |                              |                    | 0x303a		|
  * | DPC Thread                   |       0x4023       | 0x4002,0x4013  |
@@ -2516,6 +2516,12 @@ qla83xx_fw_dump_failed:
 /****************************************************************************/
 /*                         Driver Debug Functions.                          */
 /****************************************************************************/
+
+static inline int
+ql_mask_match(uint32_t level)
+{
+	return (level & ql2xextended_error_logging) == level;
+}
 
 /*
  * This function is for formatting and logging debug information.

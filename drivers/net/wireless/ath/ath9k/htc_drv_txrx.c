@@ -647,10 +647,9 @@ void ath9k_htc_txstatus(struct ath9k_htc_priv *priv, void *wmi_event)
 	struct ath9k_htc_tx_event *tx_pend;
 	int i;
 
-	if (WARN_ON_ONCE(txs->cnt > HTC_MAX_TX_STATUS))
-		return;
-
 	for (i = 0; i < txs->cnt; i++) {
+		WARN_ON(txs->cnt > HTC_MAX_TX_STATUS);
+
 		__txs = &txs->txstatus[i];
 
 		skb = ath9k_htc_tx_get_packet(priv, __txs);
@@ -974,8 +973,6 @@ static bool ath9k_rx_prepare(struct ath9k_htc_priv *priv,
 	struct ath_htc_rx_status *rxstatus;
 	struct ath_rx_status rx_stats;
 	bool decrypt_error = false;
-	u16 rs_datalen;
-	bool is_phyerr;
 
 	if (skb->len < HTC_RX_FRAME_HEADER_SIZE) {
 		ath_err(common, "Corrupted RX frame, dropping (len: %d)\n",
@@ -985,32 +982,11 @@ static bool ath9k_rx_prepare(struct ath9k_htc_priv *priv,
 
 	rxstatus = (struct ath_htc_rx_status *)skb->data;
 
-	rs_datalen = be16_to_cpu(rxstatus->rs_datalen);
-	if (unlikely(rs_datalen -
-	    (skb->len - HTC_RX_FRAME_HEADER_SIZE) != 0)) {
+	if (be16_to_cpu(rxstatus->rs_datalen) -
+	    (skb->len - HTC_RX_FRAME_HEADER_SIZE) != 0) {
 		ath_err(common,
 			"Corrupted RX data len, dropping (dlen: %d, skblen: %d)\n",
-			rs_datalen, skb->len);
-		goto rx_next;
-	}
-
-	is_phyerr = rxstatus->rs_status & ATH9K_RXERR_PHY;
-	/*
-	 * Discard zero-length packets and packets smaller than an ACK
-	 * which are not PHY_ERROR (short radar pulses have a length of 3)
-	 */
-	if (unlikely(!rs_datalen || (rs_datalen < 10 && !is_phyerr))) {
-		ath_dbg(common, ANY,
-			"Short RX data len, dropping (dlen: %d)\n",
-			rs_datalen);
-		goto rx_next;
-	}
-
-	if (rxstatus->rs_keyix >= ATH_KEYMAX &&
-	    rxstatus->rs_keyix != ATH9K_RXKEYIX_INVALID) {
-		ath_dbg(common, ANY,
-			"Invalid keyix, dropping (keyix: %d)\n",
-			rxstatus->rs_keyix);
+			rxstatus->rs_datalen, skb->len);
 		goto rx_next;
 	}
 
@@ -1035,7 +1011,7 @@ static bool ath9k_rx_prepare(struct ath9k_htc_priv *priv,
 	 * Process PHY errors and return so that the packet
 	 * can be dropped.
 	 */
-	if (unlikely(is_phyerr)) {
+	if (rx_stats.rs_status & ATH9K_RXERR_PHY) {
 		/* TODO: Not using DFS processing now. */
 		if (ath_cmn_process_fft(&priv->spec_priv, hdr,
 				    &rx_stats, rx_status->mactime)) {
@@ -1131,26 +1107,25 @@ void ath9k_htc_rxep(void *drv_priv, struct sk_buff *skb,
 	struct ath_hw *ah = priv->ah;
 	struct ath_common *common = ath9k_hw_common(ah);
 	struct ath9k_htc_rxbuf *rxbuf = NULL, *tmp_buf = NULL;
-	unsigned long flags;
 
-	spin_lock_irqsave(&priv->rx.rxbuflock, flags);
+	spin_lock(&priv->rx.rxbuflock);
 	list_for_each_entry(tmp_buf, &priv->rx.rxbuf, list) {
 		if (!tmp_buf->in_process) {
 			rxbuf = tmp_buf;
 			break;
 		}
 	}
-	spin_unlock_irqrestore(&priv->rx.rxbuflock, flags);
+	spin_unlock(&priv->rx.rxbuflock);
 
 	if (rxbuf == NULL) {
 		ath_dbg(common, ANY, "No free RX buffer\n");
 		goto err;
 	}
 
-	spin_lock_irqsave(&priv->rx.rxbuflock, flags);
+	spin_lock(&priv->rx.rxbuflock);
 	rxbuf->skb = skb;
 	rxbuf->in_process = true;
-	spin_unlock_irqrestore(&priv->rx.rxbuflock, flags);
+	spin_unlock(&priv->rx.rxbuflock);
 
 	tasklet_schedule(&priv->rx_tasklet);
 	return;

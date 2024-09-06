@@ -675,7 +675,8 @@ static int hidpp_unifying_init(struct hidpp_device *hidpp)
 	if (ret)
 		return ret;
 
-	snprintf(hdev->uniq, sizeof(hdev->uniq), "%4phD", &serial);
+	snprintf(hdev->uniq, sizeof(hdev->uniq), "%04x-%4phD",
+		 hdev->product, &serial);
 	dbg_hid("HID++ Unifying: Got serial: %s\n", hdev->uniq);
 
 	name = hidpp_unifying_get_name(hidpp);
@@ -724,16 +725,13 @@ static int hidpp_root_get_feature(struct hidpp_device *hidpp, u16 feature,
 
 static int hidpp_root_get_protocol_version(struct hidpp_device *hidpp)
 {
-	const u8 ping_byte = 0x5a;
-	u8 ping_data[3] = { 0, 0, ping_byte };
 	struct hidpp_report response;
 	int ret;
 
-	ret = hidpp_send_rap_command_sync(hidpp,
-			REPORT_ID_HIDPP_SHORT,
+	ret = hidpp_send_fap_command_sync(hidpp,
 			HIDPP_PAGE_ROOT_IDX,
 			CMD_ROOT_GET_PROTOCOL_VERSION,
-			ping_data, sizeof(ping_data), &response);
+			NULL, 0, &response);
 
 	if (ret == HIDPP_ERROR_INVALID_SUBID) {
 		hidpp->protocol_major = 1;
@@ -753,14 +751,8 @@ static int hidpp_root_get_protocol_version(struct hidpp_device *hidpp)
 	if (ret)
 		return ret;
 
-	if (response.rap.params[2] != ping_byte) {
-		hid_err(hidpp->hid_dev, "%s: ping mismatch 0x%02x != 0x%02x\n",
-			__func__, response.rap.params[2], ping_byte);
-		return -EPROTO;
-	}
-
-	hidpp->protocol_major = response.rap.params[0];
-	hidpp->protocol_minor = response.rap.params[1];
+	hidpp->protocol_major = response.fap.params[0];
+	hidpp->protocol_minor = response.fap.params[1];
 
 	return ret;
 }
@@ -774,54 +766,6 @@ static bool hidpp_is_connected(struct hidpp_device *hidpp)
 		hid_dbg(hidpp->hid_dev, "HID++ %u.%u device connected.\n",
 			hidpp->protocol_major, hidpp->protocol_minor);
 	return ret == 0;
-}
-
-/* -------------------------------------------------------------------------- */
-/* 0x0003: Device Information                                                 */
-/* -------------------------------------------------------------------------- */
-
-#define HIDPP_PAGE_DEVICE_INFORMATION			0x0003
-
-#define CMD_GET_DEVICE_INFO				0x00
-
-static int hidpp_get_serial(struct hidpp_device *hidpp, u32 *serial)
-{
-	struct hidpp_report response;
-	u8 feature_type;
-	u8 feature_index;
-	int ret;
-
-	ret = hidpp_root_get_feature(hidpp, HIDPP_PAGE_DEVICE_INFORMATION,
-				     &feature_index,
-				     &feature_type);
-	if (ret)
-		return ret;
-
-	ret = hidpp_send_fap_command_sync(hidpp, feature_index,
-					  CMD_GET_DEVICE_INFO,
-					  NULL, 0, &response);
-	if (ret)
-		return ret;
-
-	/* See hidpp_unifying_get_serial() */
-	*serial = *((u32 *)&response.rap.params[1]);
-	return 0;
-}
-
-static int hidpp_serial_init(struct hidpp_device *hidpp)
-{
-	struct hid_device *hdev = hidpp->hid_dev;
-	u32 serial;
-	int ret;
-
-	ret = hidpp_get_serial(hidpp, &serial);
-	if (ret)
-		return ret;
-
-	snprintf(hdev->uniq, sizeof(hdev->uniq), "%4phD", &serial);
-	dbg_hid("HID++ DeviceInformation: Got serial: %s\n", hdev->uniq);
-
-	return 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -957,11 +901,7 @@ static int hidpp_map_battery_level(int capacity)
 {
 	if (capacity < 11)
 		return POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
-	/*
-	 * The spec says this should be < 31 but some devices report 30
-	 * with brand new batteries and Windows reports 30 as "Good".
-	 */
-	else if (capacity < 30)
+	else if (capacity < 31)
 		return POWER_SUPPLY_CAPACITY_LEVEL_LOW;
 	else if (capacity < 81)
 		return POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
@@ -1025,9 +965,6 @@ static int hidpp20_batterylevel_get_battery_capacity(struct hidpp_device *hidpp,
 	ret = hidpp_send_fap_command_sync(hidpp, feature_index,
 					  CMD_BATTERY_LEVEL_STATUS_GET_BATTERY_LEVEL_STATUS,
 					  NULL, 0, &response);
-	/* Ignore these intermittent errors */
-	if (ret == HIDPP_ERROR_RESOURCE_ERROR)
-		return -EIO;
 	if (ret > 0) {
 		hid_err(hidpp->hid_dev, "%s: received protocol error 0x%02x\n",
 			__func__, ret);
@@ -1977,13 +1914,6 @@ static int hidpp_ff_init(struct hidpp_device *hidpp, u8 feature_index)
 		kfree(data);
 		return -ENOMEM;
 	}
-	data->wq = create_singlethread_workqueue("hidpp-ff-sendqueue");
-	if (!data->wq) {
-		kfree(data->effect_ids);
-		kfree(data);
-		return -ENOMEM;
-	}
-
 	data->hidpp = hidpp;
 	data->feature_index = feature_index;
 	data->version = version;
@@ -2028,6 +1958,7 @@ static int hidpp_ff_init(struct hidpp_device *hidpp, u8 feature_index)
 	/* ignore boost value at response.fap.params[2] */
 
 	/* init the hardware command queue */
+	data->wq = create_singlethread_workqueue("hidpp-ff-sendqueue");
 	atomic_set(&data->workqueue_size, 0);
 
 	/* initialize with zero autocenter to get wheel in usable state */
@@ -3086,8 +3017,6 @@ static int hidpp_probe(struct hid_device *hdev, const struct hid_device_id *id)
 
 	if (hidpp->quirks & HIDPP_QUIRK_UNIFYING)
 		hidpp_unifying_init(hidpp);
-	else if (hid_is_usb(hidpp->hid_dev))
-		hidpp_serial_init(hidpp);
 
 	connected = hidpp_is_connected(hidpp);
 	atomic_set(&hidpp->connected, connected);
@@ -3128,8 +3057,7 @@ static int hidpp_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	/* Allow incoming packets */
 	hid_device_io_start(hdev);
 
-	schedule_work(&hidpp->work);
-	flush_work(&hidpp->work);
+	hidpp_connect_event(hidpp);
 
 	return ret;
 

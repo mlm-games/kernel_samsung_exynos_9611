@@ -283,10 +283,8 @@ bfad_im_get_stats(struct Scsi_Host *shost)
 	rc = bfa_port_get_stats(BFA_FCPORT(&bfad->bfa),
 				fcstats, bfad_hcb_comp, &fcomp);
 	spin_unlock_irqrestore(&bfad->bfad_lock, flags);
-	if (rc != BFA_STATUS_OK) {
-		kfree(fcstats);
+	if (rc != BFA_STATUS_OK)
 		return NULL;
-	}
 
 	wait_for_completion(&fcomp.comp);
 
@@ -722,7 +720,7 @@ bfad_im_serial_num_show(struct device *dev, struct device_attribute *attr,
 	char serial_num[BFA_ADAPTER_SERIAL_NUM_LEN];
 
 	bfa_get_adapter_serial_num(&bfad->bfa, serial_num);
-	return sysfs_emit(buf, "%s\n", serial_num);
+	return snprintf(buf, PAGE_SIZE, "%s\n", serial_num);
 }
 
 static ssize_t
@@ -736,7 +734,7 @@ bfad_im_model_show(struct device *dev, struct device_attribute *attr,
 	char model[BFA_ADAPTER_MODEL_NAME_LEN];
 
 	bfa_get_adapter_model(&bfad->bfa, model);
-	return sysfs_emit(buf, "%s\n", model);
+	return snprintf(buf, PAGE_SIZE, "%s\n", model);
 }
 
 static ssize_t
@@ -816,7 +814,7 @@ bfad_im_model_desc_show(struct device *dev, struct device_attribute *attr,
 		snprintf(model_descr, BFA_ADAPTER_MODEL_DESCR_LEN,
 			"Invalid Model");
 
-	return sysfs_emit(buf, "%s\n", model_descr);
+	return snprintf(buf, PAGE_SIZE, "%s\n", model_descr);
 }
 
 static ssize_t
@@ -830,7 +828,7 @@ bfad_im_node_name_show(struct device *dev, struct device_attribute *attr,
 	u64        nwwn;
 
 	nwwn = bfa_fcs_lport_get_nwwn(port->fcs_port);
-	return sysfs_emit(buf, "0x%llx\n", cpu_to_be64(nwwn));
+	return snprintf(buf, PAGE_SIZE, "0x%llx\n", cpu_to_be64(nwwn));
 }
 
 static ssize_t
@@ -847,7 +845,7 @@ bfad_im_symbolic_name_show(struct device *dev, struct device_attribute *attr,
 	bfa_fcs_lport_get_attr(&bfad->bfa_fcs.fabric.bport, &port_attr);
 	strlcpy(symname, port_attr.port_cfg.sym_name.symname,
 			BFA_SYMNAME_MAXLEN);
-	return sysfs_emit(buf, "%s\n", symname);
+	return snprintf(buf, PAGE_SIZE, "%s\n", symname);
 }
 
 static ssize_t
@@ -861,14 +859,14 @@ bfad_im_hw_version_show(struct device *dev, struct device_attribute *attr,
 	char hw_ver[BFA_VERSION_LEN];
 
 	bfa_get_pci_chip_rev(&bfad->bfa, hw_ver);
-	return sysfs_emit(buf, "%s\n", hw_ver);
+	return snprintf(buf, PAGE_SIZE, "%s\n", hw_ver);
 }
 
 static ssize_t
 bfad_im_drv_version_show(struct device *dev, struct device_attribute *attr,
 				char *buf)
 {
-	return sysfs_emit(buf, "%s\n", BFAD_DRIVER_VERSION);
+	return snprintf(buf, PAGE_SIZE, "%s\n", BFAD_DRIVER_VERSION);
 }
 
 static ssize_t
@@ -882,7 +880,7 @@ bfad_im_optionrom_version_show(struct device *dev,
 	char optrom_ver[BFA_VERSION_LEN];
 
 	bfa_get_adapter_optrom_ver(&bfad->bfa, optrom_ver);
-	return sysfs_emit(buf, "%s\n", optrom_ver);
+	return snprintf(buf, PAGE_SIZE, "%s\n", optrom_ver);
 }
 
 static ssize_t
@@ -896,7 +894,7 @@ bfad_im_fw_version_show(struct device *dev, struct device_attribute *attr,
 	char fw_ver[BFA_VERSION_LEN];
 
 	bfa_get_adapter_fw_ver(&bfad->bfa, fw_ver);
-	return sysfs_emit(buf, "%s\n", fw_ver);
+	return snprintf(buf, PAGE_SIZE, "%s\n", fw_ver);
 }
 
 static ssize_t
@@ -908,7 +906,7 @@ bfad_im_num_of_ports_show(struct device *dev, struct device_attribute *attr,
 			(struct bfad_im_port_s *) shost->hostdata[0];
 	struct bfad_s *bfad = im_port->bfad;
 
-	return sysfs_emit(buf, "%d\n",
+	return snprintf(buf, PAGE_SIZE, "%d\n",
 			bfa_get_nports(&bfad->bfa));
 }
 
@@ -916,7 +914,7 @@ static ssize_t
 bfad_im_drv_name_show(struct device *dev, struct device_attribute *attr,
 				char *buf)
 {
-	return sysfs_emit(buf, "%s\n", BFAD_DRIVER_NAME);
+	return snprintf(buf, PAGE_SIZE, "%s\n", BFAD_DRIVER_NAME);
 }
 
 static ssize_t
@@ -935,14 +933,14 @@ bfad_im_num_of_discovered_ports_show(struct device *dev,
 	rports = kzalloc(sizeof(struct bfa_rport_qualifier_s) * nrports,
 			 GFP_ATOMIC);
 	if (rports == NULL)
-		return sysfs_emit(buf, "Failed\n");
+		return snprintf(buf, PAGE_SIZE, "Failed\n");
 
 	spin_lock_irqsave(&bfad->bfad_lock, flags);
 	bfa_fcs_lport_get_rport_quals(port->fcs_port, rports, &nrports);
 	spin_unlock_irqrestore(&bfad->bfad_lock, flags);
 	kfree(rports);
 
-	return sysfs_emit(buf, "%d\n", nrports);
+	return snprintf(buf, PAGE_SIZE, "%d\n", nrports);
 }
 
 static          DEVICE_ATTR(serial_number, S_IRUGO,

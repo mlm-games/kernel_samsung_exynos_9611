@@ -86,13 +86,11 @@ static bool is_inline_int(struct type_descriptor *type)
 	return bits <= inline_bits;
 }
 
-static s_max get_signed_val(struct type_descriptor *type, void *val)
+static s_max get_signed_val(struct type_descriptor *type, unsigned long val)
 {
 	if (is_inline_int(type)) {
 		unsigned extra_bits = sizeof(s_max)*8 - type_bit_width(type);
-		unsigned long ulong_val = (unsigned long)val;
-
-		return ((s_max)ulong_val) << extra_bits >> extra_bits;
+		return ((s_max)val) << extra_bits >> extra_bits;
 	}
 
 	if (type_bit_width(type) == 64)
@@ -101,15 +99,15 @@ static s_max get_signed_val(struct type_descriptor *type, void *val)
 	return *(s_max *)val;
 }
 
-static bool val_is_negative(struct type_descriptor *type, void *val)
+static bool val_is_negative(struct type_descriptor *type, unsigned long val)
 {
 	return type_is_signed(type) && get_signed_val(type, val) < 0;
 }
 
-static u_max get_unsigned_val(struct type_descriptor *type, void *val)
+static u_max get_unsigned_val(struct type_descriptor *type, unsigned long val)
 {
 	if (is_inline_int(type))
-		return (unsigned long)val;
+		return val;
 
 	if (type_bit_width(type) == 64)
 		return *(u64 *)val;
@@ -118,7 +116,7 @@ static u_max get_unsigned_val(struct type_descriptor *type, void *val)
 }
 
 static void val_to_string(char *str, size_t size, struct type_descriptor *type,
-			void *value)
+	unsigned long value)
 {
 	if (type_is_int(type)) {
 		if (type_bit_width(type) == 128) {
@@ -143,6 +141,11 @@ static void val_to_string(char *str, size_t size, struct type_descriptor *type,
 	}
 }
 
+static bool location_is_valid(struct source_location *loc)
+{
+	return loc->file_name != NULL;
+}
+
 static DEFINE_SPINLOCK(report_lock);
 
 static void ubsan_prologue(struct source_location *location,
@@ -165,8 +168,8 @@ static void ubsan_epilogue(unsigned long *flags)
 	current->in_ubsan--;
 }
 
-static void handle_overflow(struct overflow_data *data, void *lhs,
-			void *rhs, char op)
+static void handle_overflow(struct overflow_data *data, unsigned long lhs,
+			unsigned long rhs, char op)
 {
 
 	struct type_descriptor *type = data->type;
@@ -193,7 +196,8 @@ static void handle_overflow(struct overflow_data *data, void *lhs,
 }
 
 void __ubsan_handle_add_overflow(struct overflow_data *data,
-				void *lhs, void *rhs)
+				unsigned long lhs,
+				unsigned long rhs)
 {
 
 	handle_overflow(data, lhs, rhs, '+');
@@ -201,21 +205,23 @@ void __ubsan_handle_add_overflow(struct overflow_data *data,
 EXPORT_SYMBOL(__ubsan_handle_add_overflow);
 
 void __ubsan_handle_sub_overflow(struct overflow_data *data,
-				void *lhs, void *rhs)
+				unsigned long lhs,
+				unsigned long rhs)
 {
 	handle_overflow(data, lhs, rhs, '-');
 }
 EXPORT_SYMBOL(__ubsan_handle_sub_overflow);
 
 void __ubsan_handle_mul_overflow(struct overflow_data *data,
-				void *lhs, void *rhs)
+				unsigned long lhs,
+				unsigned long rhs)
 {
 	handle_overflow(data, lhs, rhs, '*');
 }
 EXPORT_SYMBOL(__ubsan_handle_mul_overflow);
 
 void __ubsan_handle_negate_overflow(struct overflow_data *data,
-				void *old_val)
+				unsigned long old_val)
 {
 	unsigned long flags;
 	char old_val_str[VALUE_LENGTH];
@@ -236,7 +242,8 @@ EXPORT_SYMBOL(__ubsan_handle_negate_overflow);
 
 
 void __ubsan_handle_divrem_overflow(struct overflow_data *data,
-				void *lhs, void *rhs)
+				unsigned long lhs,
+				unsigned long rhs)
 {
 	unsigned long flags;
 	char rhs_val_str[VALUE_LENGTH];
@@ -321,7 +328,7 @@ static void ubsan_type_mismatch_common(struct type_mismatch_data_common *data,
 }
 
 void __ubsan_handle_type_mismatch(struct type_mismatch_data *data,
-				void *ptr)
+				unsigned long ptr)
 {
 	struct type_mismatch_data_common common_data = {
 		.location = &data->location,
@@ -330,12 +337,12 @@ void __ubsan_handle_type_mismatch(struct type_mismatch_data *data,
 		.type_check_kind = data->type_check_kind
 	};
 
-	ubsan_type_mismatch_common(&common_data, (unsigned long)ptr);
+	ubsan_type_mismatch_common(&common_data, ptr);
 }
 EXPORT_SYMBOL(__ubsan_handle_type_mismatch);
 
 void __ubsan_handle_type_mismatch_v1(struct type_mismatch_data_v1 *data,
-				void *ptr)
+				unsigned long ptr)
 {
 
 	struct type_mismatch_data_common common_data = {
@@ -345,12 +352,31 @@ void __ubsan_handle_type_mismatch_v1(struct type_mismatch_data_v1 *data,
 		.type_check_kind = data->type_check_kind
 	};
 
-	ubsan_type_mismatch_common(&common_data, (unsigned long)ptr);
+	ubsan_type_mismatch_common(&common_data, ptr);
 }
 EXPORT_SYMBOL(__ubsan_handle_type_mismatch_v1);
 
+void __ubsan_handle_nonnull_return(struct nonnull_return_data *data)
+{
+	unsigned long flags;
+
+	if (suppress_report(&data->location))
+		return;
+
+	ubsan_prologue(&data->location, &flags);
+
+	pr_err("null pointer returned from function declared to never return null\n");
+
+	if (location_is_valid(&data->attr_location))
+		print_source_location("returns_nonnull attribute specified in",
+				&data->attr_location);
+
+	ubsan_epilogue(&flags);
+}
+EXPORT_SYMBOL(__ubsan_handle_nonnull_return);
+
 void __ubsan_handle_vla_bound_not_positive(struct vla_bound_data *data,
-					void *bound)
+					unsigned long bound)
 {
 	unsigned long flags;
 	char bound_str[VALUE_LENGTH];
@@ -367,7 +393,8 @@ void __ubsan_handle_vla_bound_not_positive(struct vla_bound_data *data,
 }
 EXPORT_SYMBOL(__ubsan_handle_vla_bound_not_positive);
 
-void __ubsan_handle_out_of_bounds(struct out_of_bounds_data *data, void *index)
+void __ubsan_handle_out_of_bounds(struct out_of_bounds_data *data,
+				unsigned long index)
 {
 	unsigned long flags;
 	char index_str[VALUE_LENGTH];
@@ -385,7 +412,7 @@ void __ubsan_handle_out_of_bounds(struct out_of_bounds_data *data, void *index)
 EXPORT_SYMBOL(__ubsan_handle_out_of_bounds);
 
 void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_data *data,
-					void *lhs, void *rhs)
+					unsigned long lhs, unsigned long rhs)
 {
 	unsigned long flags;
 	struct type_descriptor *rhs_type = data->rhs_type;
@@ -436,7 +463,7 @@ void __ubsan_handle_builtin_unreachable(struct unreachable_data *data)
 EXPORT_SYMBOL(__ubsan_handle_builtin_unreachable);
 
 void __ubsan_handle_load_invalid_value(struct invalid_value_data *data,
-				void *val)
+				unsigned long val)
 {
 	unsigned long flags;
 	char val_str[VALUE_LENGTH];

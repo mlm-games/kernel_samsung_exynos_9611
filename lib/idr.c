@@ -111,27 +111,13 @@ void *idr_get_next(struct idr *idr, int *nextid)
 {
 	struct radix_tree_iter iter;
 	void __rcu **slot;
-	void *entry = NULL;
 
-	radix_tree_for_each_slot(slot, &idr->idr_rt, &iter, *nextid) {
-		entry = rcu_dereference_raw(*slot);
-		if (!entry)
-			continue;
-		if (!radix_tree_deref_retry(entry))
-			break;
-		if (slot != (void *)&idr->idr_rt.rnode &&
-				entry != (void *)RADIX_TREE_INTERNAL_NODE)
-			break;
-		slot = radix_tree_iter_retry(&iter);
-	}
+	slot = radix_tree_iter_find(&idr->idr_rt, &iter, *nextid);
 	if (!slot)
 		return NULL;
 
-	if (WARN_ON_ONCE(iter.index > INT_MAX))
-		return NULL;
-
 	*nextid = iter.index;
-	return entry;
+	return rcu_dereference_raw(*slot);
 }
 EXPORT_SYMBOL(idr_get_next);
 
@@ -498,9 +484,7 @@ void ida_simple_remove(struct ida *ida, unsigned int id)
 {
 	unsigned long flags;
 
-	if ((int)id < 0)
-		return;
-
+	BUG_ON((int)id < 0);
 	spin_lock_irqsave(&simple_ida_lock, flags);
 	ida_remove(ida, id);
 	spin_unlock_irqrestore(&simple_ida_lock, flags);

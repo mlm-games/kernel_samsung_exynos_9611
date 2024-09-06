@@ -17,6 +17,7 @@
 #include <linux/security.h>
 #include <linux/evm.h>
 #include <linux/ima.h>
+#include <linux/task_integrity.h>
 
 /**
  * setattr_prepare - check if attribute changes to a dentry are allowed
@@ -113,8 +114,6 @@ EXPORT_SYMBOL(setattr_prepare);
  */
 int inode_newsize_ok(const struct inode *inode, loff_t offset)
 {
-	if (offset < 0)
-		return -EINVAL;
 	if (inode->i_size < offset) {
 		unsigned long limit;
 
@@ -204,7 +203,7 @@ EXPORT_SYMBOL(setattr_copy);
  * the file open for write, as there can be no conflicting delegation in
  * that case.
  */
-int notify_change(struct dentry * dentry, struct iattr * attr, struct inode **delegated_inode)
+int notify_change2(struct vfsmount *mnt, struct dentry * dentry, struct iattr * attr, struct inode **delegated_inode)
 {
 	struct inode *inode = dentry->d_inode;
 	umode_t mode = inode->i_mode;
@@ -228,32 +227,16 @@ int notify_change(struct dentry * dentry, struct iattr * attr, struct inode **de
 			return -EPERM;
 
 		if (!inode_owner_or_capable(inode)) {
-			error = inode_permission(inode, MAY_WRITE);
+			error = inode_permission2(mnt, inode, MAY_WRITE);
 			if (error)
 				return error;
 		}
 	}
 
 	if ((ia_valid & ATTR_MODE)) {
-		/*
-		 * Don't allow changing the mode of symlinks:
-		 *
-		 * (1) The vfs doesn't take the mode of symlinks into account
-		 *     during permission checking.
-		 * (2) This has never worked correctly. Most major filesystems
-		 *     did return EOPNOTSUPP due to interactions with POSIX ACLs
-		 *     but did still updated the mode of the symlink.
-		 *     This inconsistency led system call wrapper providers such
-		 *     as libc to block changing the mode of symlinks with
-		 *     EOPNOTSUPP already.
-		 * (3) To even do this in the first place one would have to use
-		 *     specific file descriptors and quite some effort.
-		 */
-		if (S_ISLNK(inode->i_mode))
-			return -EOPNOTSUPP;
-
+		umode_t amode = attr->ia_mode;
 		/* Flag setting protected by i_mutex */
-		if (is_sxid(attr->ia_mode))
+		if (is_sxid(amode))
 			inode->i_flags &= ~S_NOSEC;
 	}
 
@@ -327,17 +310,26 @@ int notify_change(struct dentry * dentry, struct iattr * attr, struct inode **de
 	if (error)
 		return error;
 
-	if (inode->i_op->setattr)
+	if (mnt && inode->i_op->setattr2)
+		error = inode->i_op->setattr2(mnt, dentry, attr);
+	else if (inode->i_op->setattr)
 		error = inode->i_op->setattr(dentry, attr);
 	else
 		error = simple_setattr(dentry, attr);
 
 	if (!error) {
 		fsnotify_change(dentry, ia_valid);
+		five_inode_post_setattr(current, dentry);
 		ima_inode_post_setattr(dentry);
 		evm_inode_post_setattr(dentry, ia_valid);
 	}
 
 	return error;
+}
+EXPORT_SYMBOL(notify_change2);
+
+int notify_change(struct dentry * dentry, struct iattr * attr, struct inode **delegated_inode)
+{
+	return notify_change2(NULL, dentry, attr, delegated_inode);
 }
 EXPORT_SYMBOL(notify_change);

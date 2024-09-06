@@ -45,7 +45,6 @@ struct oom_control {
 };
 
 extern struct mutex oom_lock;
-extern struct mutex oom_adj_mutex;
 
 static inline void set_current_oom_origin(void)
 {
@@ -113,6 +112,7 @@ extern bool oom_killer_disable(signed long timeout);
 extern void oom_killer_enable(void);
 
 extern struct task_struct *find_lock_task_mm(struct task_struct *p);
+extern void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask);
 
 /* sysctls */
 extern int sysctl_oom_dump_tasks;

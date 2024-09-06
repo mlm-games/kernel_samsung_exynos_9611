@@ -129,11 +129,6 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 		goto out_unlock;
 	}
 
-	if (slen > nla_len(info->attrs[SEG6_ATTR_SECRET])) {
-		err = -EINVAL;
-		goto out_unlock;
-	}
-
 	if (hinfo) {
 		err = seg6_hmac_info_del(net, hmackeyid);
 		if (err)
@@ -447,24 +442,22 @@ int __init seg6_init(void)
 {
 	int err = -ENOMEM;
 
-	err = register_pernet_subsys(&ip6_segments_ops);
+	err = genl_register_family(&seg6_genl_family);
 	if (err)
 		goto out;
 
-	err = genl_register_family(&seg6_genl_family);
+	err = register_pernet_subsys(&ip6_segments_ops);
 	if (err)
-		goto out_unregister_pernet;
+		goto out_unregister_genl;
 
 #ifdef CONFIG_IPV6_SEG6_LWTUNNEL
 	err = seg6_iptunnel_init();
 	if (err)
-		goto out_unregister_genl;
+		goto out_unregister_pernet;
 
 	err = seg6_local_init();
-	if (err) {
-		seg6_iptunnel_exit();
-		goto out_unregister_genl;
-	}
+	if (err)
+		goto out_unregister_pernet;
 #endif
 
 #ifdef CONFIG_IPV6_SEG6_HMAC
@@ -485,11 +478,11 @@ out_unregister_iptun:
 #endif
 #endif
 #ifdef CONFIG_IPV6_SEG6_LWTUNNEL
-out_unregister_genl:
-	genl_unregister_family(&seg6_genl_family);
-#endif
 out_unregister_pernet:
 	unregister_pernet_subsys(&ip6_segments_ops);
+#endif
+out_unregister_genl:
+	genl_unregister_family(&seg6_genl_family);
 	goto out;
 }
 

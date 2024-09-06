@@ -1320,10 +1320,9 @@ static irqreturn_t mmci_irq(int irq, void *dev_id)
 		}
 
 		/*
-		 * Busy detection has been handled by mmci_cmd_irq() above.
-		 * Clear the status bit to prevent polling in IRQ context.
+		 * Don't poll for busy completion in irq context.
 		 */
-		if (host->variant->busy_detect_flag)
+		if (host->variant->busy_detect && host->busy_status)
 			status &= ~host->variant->busy_detect_flag;
 
 		ret = 1;
@@ -1792,9 +1791,7 @@ static int mmci_probe(struct amba_device *dev,
 	pm_runtime_set_autosuspend_delay(&dev->dev, 50);
 	pm_runtime_use_autosuspend(&dev->dev);
 
-	ret = mmc_add_host(mmc);
-	if (ret)
-		goto clk_disable;
+	mmc_add_host(mmc);
 
 	pm_runtime_put(&dev->dev);
 	return 0;

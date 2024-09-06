@@ -146,7 +146,7 @@ static inline unsigned long kmem_cache_flags(unsigned long object_size,
 #define SLAB_CACHE_FLAGS (SLAB_NOLEAKTRACE | SLAB_RECLAIM_ACCOUNT | \
 			  SLAB_TEMPORARY | SLAB_ACCOUNT)
 #else
-#define SLAB_CACHE_FLAGS (SLAB_NOLEAKTRACE)
+#define SLAB_CACHE_FLAGS (0)
 #endif
 
 /* Common flags available with current configuration */
@@ -421,10 +421,21 @@ static inline struct kmem_cache *slab_pre_alloc_hook(struct kmem_cache *s,
 	if (should_failslab(s, flags))
 		return NULL;
 
+#ifdef CONFIG_RKP_KDP
+	if (s->name &&
+		(!strcmp(s->name, CRED_JAR_RO) ||
+		!strcmp(s->name, TSEC_JAR)||
+		!strcmp(s->name, VFSMNT_JAR)))
+		goto out;
+#endif
+
 	if (memcg_kmem_enabled() &&
 	    ((flags & __GFP_ACCOUNT) || (s->flags & SLAB_ACCOUNT)))
 		return memcg_kmem_get_cache(s);
 
+#ifdef CONFIG_RKP_KDP
+	out:
+#endif
 	return s;
 }
 

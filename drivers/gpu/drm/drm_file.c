@@ -138,7 +138,7 @@ int drm_open(struct inode *inode, struct file *filp)
 {
 	struct drm_device *dev;
 	struct drm_minor *minor;
-	int retcode = 0;
+	int retcode;
 	int need_setup = 0;
 
 	minor = drm_minor_acquire(iminor(inode));
@@ -525,7 +525,6 @@ put_back_event:
 				file_priv->event_space -= length;
 				list_add(&e->link, &file_priv->event_list);
 				spin_unlock_irq(&dev->event_lock);
-				wake_up_interruptible(&file_priv->event_wait);
 				break;
 			}
 

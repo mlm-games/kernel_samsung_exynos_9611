@@ -50,18 +50,12 @@ static int mcp4725_suspend(struct device *dev)
 	struct mcp4725_data *data = iio_priv(i2c_get_clientdata(
 		to_i2c_client(dev)));
 	u8 outbuf[2];
-	int ret;
 
 	outbuf[0] = (data->powerdown_mode + 1) << 4;
 	outbuf[1] = 0;
 	data->powerdown = true;
 
-	ret = i2c_master_send(data->client, outbuf, 2);
-	if (ret < 0)
-		return ret;
-	else if (ret != 2)
-		return -EIO;
-	return 0;
+	return i2c_master_send(data->client, outbuf, 2);
 }
 
 static int mcp4725_resume(struct device *dev)
@@ -69,19 +63,13 @@ static int mcp4725_resume(struct device *dev)
 	struct mcp4725_data *data = iio_priv(i2c_get_clientdata(
 		to_i2c_client(dev)));
 	u8 outbuf[2];
-	int ret;
 
 	/* restore previous DAC value */
 	outbuf[0] = (data->dac_value >> 8) & 0xf;
 	outbuf[1] = data->dac_value & 0xff;
 	data->powerdown = false;
 
-	ret = i2c_master_send(data->client, outbuf, 2);
-	if (ret < 0)
-		return ret;
-	else if (ret != 2)
-		return -EIO;
-	return 0;
+	return i2c_master_send(data->client, outbuf, 2);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -110,7 +98,6 @@ static ssize_t mcp4725_store_eeprom(struct device *dev,
 
 	inoutbuf[0] = 0x60; /* write EEPROM */
 	inoutbuf[0] |= data->ref_mode << 3;
-	inoutbuf[0] |= data->powerdown ? ((data->powerdown_mode + 1) << 1) : 0;
 	inoutbuf[1] = data->dac_value >> 4;
 	inoutbuf[2] = (data->dac_value & 0xf) << 4;
 

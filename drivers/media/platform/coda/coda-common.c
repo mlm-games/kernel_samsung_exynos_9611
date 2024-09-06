@@ -360,7 +360,6 @@ static struct vdoa_data *coda_get_vdoa_data(void)
 	if (!vdoa_data)
 		vdoa_data = ERR_PTR(-EPROBE_DEFER);
 
-	put_device(&vdoa_pdev->dev);
 out:
 	if (vdoa_node)
 		of_node_put(vdoa_node);
@@ -932,8 +931,6 @@ static int coda_encoder_cmd(struct file *file, void *fh,
 
 	/* Set the stream-end flag on this context */
 	ctx->bit_stream_param |= CODA_BIT_STREAM_END_FLAG;
-
-	flush_work(&ctx->pic_run_work);
 
 	/* If there is no buffer in flight, wake up */
 	if (!ctx->streamon_out || ctx->qsequence == ctx->osequence) {

@@ -915,12 +915,8 @@ static void pvr2_v4l2_internal_check(struct pvr2_channel *chp)
 	pvr2_v4l2_dev_disassociate_parent(vp->dev_video);
 	pvr2_v4l2_dev_disassociate_parent(vp->dev_radio);
 	if (!list_empty(&vp->dev_video->devbase.fh_list) ||
-	    (vp->dev_radio &&
-	     !list_empty(&vp->dev_radio->devbase.fh_list))) {
-		pvr2_trace(PVR2_TRACE_STRUCT,
-			   "pvr2_v4l2 internal_check exit-empty id=%p", vp);
+	    !list_empty(&vp->dev_radio->devbase.fh_list))
 		return;
-	}
 	pvr2_v4l2_destroy_no_lock(vp);
 }
 
@@ -994,8 +990,7 @@ static int pvr2_v4l2_release(struct file *file)
 	kfree(fhp);
 	if (vp->channel.mc_head->disconnect_flag &&
 	    list_empty(&vp->dev_video->devbase.fh_list) &&
-	    (!vp->dev_radio ||
-	     list_empty(&vp->dev_radio->devbase.fh_list))) {
+	    list_empty(&vp->dev_radio->devbase.fh_list)) {
 		pvr2_v4l2_destroy_no_lock(vp);
 	}
 	return 0;
@@ -1092,10 +1087,8 @@ static int pvr2_v4l2_open(struct file *file)
 }
 
 
-static void pvr2_v4l2_notify(void *ptr)
+static void pvr2_v4l2_notify(struct pvr2_v4l2_fh *fhp)
 {
-	struct pvr2_v4l2_fh *fhp = ptr;
-
 	wake_up(&fhp->wait_data);
 }
 
@@ -1128,7 +1121,7 @@ static int pvr2_v4l2_iosetup(struct pvr2_v4l2_fh *fh)
 
 	hdw = fh->channel.mc_head->hdw;
 	sp = fh->pdi->stream->stream;
-	pvr2_stream_set_callback(sp, pvr2_v4l2_notify, fh);
+	pvr2_stream_set_callback(sp,(pvr2_stream_callback)pvr2_v4l2_notify,fh);
 	pvr2_hdw_set_stream_type(hdw,fh->pdi->config);
 	if ((ret = pvr2_hdw_set_streaming(hdw,!0)) < 0) return ret;
 	return pvr2_ioread_set_enabled(fh->rhp,!0);

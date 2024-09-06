@@ -47,10 +47,10 @@
 #include <net/inet_ecn.h>
 #include <net/dst_metadata.h>
 
-void udp_v6_early_demux(struct sk_buff *);
-void tcp_v6_early_demux(struct sk_buff *);
 int ip6_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
+	void (*edemux)(struct sk_buff *skb);
+
 	/* if ingress device is enslaved to an L3 master device pass the
 	 * skb to its handler for processing
 	 */
@@ -58,20 +58,13 @@ int ip6_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 	if (!skb)
 		return NET_RX_SUCCESS;
 
-	if (READ_ONCE(net->ipv4.sysctl_ip_early_demux) &&
-	    !skb_dst(skb) && !skb->sk) {
-		switch (ipv6_hdr(skb)->nexthdr) {
-		case IPPROTO_TCP:
-			if (READ_ONCE(net->ipv4.sysctl_tcp_early_demux))
-				tcp_v6_early_demux(skb);
-			break;
-		case IPPROTO_UDP:
-			if (READ_ONCE(net->ipv4.sysctl_udp_early_demux))
-				udp_v6_early_demux(skb);
-			break;
-		}
-	}
+	if (net->ipv4.sysctl_ip_early_demux && !skb_dst(skb) && skb->sk == NULL) {
+		const struct inet6_protocol *ipprot;
 
+		ipprot = rcu_dereference(inet6_protos[ipv6_hdr(skb)->nexthdr]);
+		if (ipprot && (edemux = READ_ONCE(ipprot->early_demux)))
+			edemux(skb);
+	}
 	if (!skb_valid_dst(skb))
 		ip6_route_input(skb);
 
@@ -86,6 +79,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	struct net *net = dev_net(skb->dev);
 
 	if (skb->pkt_type == PACKET_OTHERHOST) {
+		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_OPT_IP_OTHERHOST);
 		kfree_skb(skb);
 		return NET_RX_DROP;
 	}
@@ -99,6 +93,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL ||
 	    !idev || unlikely(idev->cnf.disable_ipv6)) {
 		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INDISCARDS);
+		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INDISCARDS1);
 		goto drop;
 	}
 
@@ -190,10 +185,12 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 		if (pkt_len + sizeof(struct ipv6hdr) > skb->len) {
 			__IP6_INC_STATS(net,
 					idev, IPSTATS_MIB_INTRUNCATEDPKTS);
+			DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INTRUNCATEDPKTS1);
 			goto drop;
 		}
 		if (pskb_trim_rcsum(skb, pkt_len + sizeof(struct ipv6hdr))) {
 			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
+			DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INHDRERRORS2);
 			goto drop;
 		}
 		hdr = ipv6_hdr(skb);
@@ -217,6 +214,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 		       ip6_rcv_finish);
 err:
 	__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
+	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INHDRERRORS3);
 drop:
 	rcu_read_unlock();
 	kfree_skb(skb);
@@ -309,6 +307,7 @@ resubmit_final:
 			if (xfrm6_policy_check(NULL, XFRM_POLICY_IN, skb)) {
 				__IP6_INC_STATS(net, idev,
 						IPSTATS_MIB_INUNKNOWNPROTOS);
+				DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INUNKNOWNPROTOS1);
 				icmpv6_send(skb, ICMPV6_PARAMPROB,
 					    ICMPV6_UNK_NEXTHDR, nhoff);
 			}
@@ -324,6 +323,7 @@ resubmit_final:
 discard:
 	__IP6_INC_STATS(net, idev, IPSTATS_MIB_INDISCARDS);
 	rcu_read_unlock();
+	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INDISCARDS2);
 	kfree_skb(skb);
 	return 0;
 }

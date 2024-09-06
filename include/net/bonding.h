@@ -149,6 +149,7 @@ struct slave {
 	unsigned long target_last_arp_rx[BOND_MAX_ARP_TARGETS];
 	s8     link;		/* one of BOND_LINK_XXXX */
 	s8     link_new_state;	/* one of BOND_LINK_XXXX */
+	s8     new_link;
 	u8     backup:1,   /* indicates backup slave. Value corresponds with
 			      BOND_STATE_ACTIVE and BOND_STATE_BACKUP */
 	       inactive:1, /* indicates inactive slave */
@@ -169,11 +170,6 @@ struct slave {
 	struct kobject kobj;
 	struct rtnl_link_stats64 slave_stats;
 };
-
-static inline struct slave *to_slave(struct kobject *kobj)
-{
-	return container_of(kobj, struct slave, kobj);
-}
 
 struct bond_up_slave {
 	unsigned int	count;
@@ -527,7 +523,7 @@ static inline void bond_propose_link_state(struct slave *slave, int state)
 
 static inline void bond_commit_link_state(struct slave *slave, bool notify)
 {
-	if (slave->link_new_state == BOND_LINK_NOCHANGE)
+	if (slave->link == slave->link_new_state)
 		return;
 
 	slave->link = slave->link_new_state;
@@ -658,14 +654,37 @@ static inline struct slave *bond_slave_has_mac(struct bonding *bond,
 }
 
 /* Caller must hold rcu_read_lock() for read */
-static inline bool bond_slave_has_mac_rcu(struct bonding *bond, const u8 *mac)
+static inline struct slave *bond_slave_has_mac_rcu(struct bonding *bond,
+					       const u8 *mac)
 {
 	struct list_head *iter;
 	struct slave *tmp;
 
 	bond_for_each_slave_rcu(bond, tmp, iter)
 		if (ether_addr_equal_64bits(mac, tmp->dev->dev_addr))
+			return tmp;
+
+	return NULL;
+}
+
+/* Caller must hold rcu_read_lock() for read */
+static inline bool bond_slave_has_mac_rx(struct bonding *bond, const u8 *mac)
+{
+	struct list_head *iter;
+	struct slave *tmp;
+	struct netdev_hw_addr *ha;
+
+	bond_for_each_slave_rcu(bond, tmp, iter)
+		if (ether_addr_equal_64bits(mac, tmp->dev->dev_addr))
 			return true;
+
+	if (netdev_uc_empty(bond->dev))
+		return false;
+
+	netdev_for_each_uc_addr(ha, bond->dev)
+		if (ether_addr_equal_64bits(mac, ha->addr))
+			return true;
+
 	return false;
 }
 
@@ -697,9 +716,6 @@ extern struct bond_parm_tbl ad_select_tbl[];
 
 /* exported from bond_netlink.c */
 extern struct rtnl_link_ops bond_link_ops;
-
-/* exported from bond_sysfs_slave.c */
-extern const struct sysfs_ops slave_sysfs_ops;
 
 static inline void bond_tx_drop(struct net_device *dev, struct sk_buff *skb)
 {

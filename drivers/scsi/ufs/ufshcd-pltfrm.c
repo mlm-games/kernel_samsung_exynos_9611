@@ -124,20 +124,9 @@ out:
 	return ret;
 }
 
-static bool phandle_exists(const struct device_node *np,
-			   const char *phandle_name, int index)
-{
-	struct device_node *parse_np = of_parse_phandle(np, phandle_name, index);
-
-	if (parse_np)
-		of_node_put(parse_np);
-
-	return parse_np != NULL;
-}
-
 #define MAX_PROP_SIZE 32
 static int ufshcd_populate_vreg(struct device *dev, const char *name,
-				struct ufs_vreg **out_vreg)
+		struct ufs_vreg **out_vreg)
 {
 	int ret = 0;
 	char prop_name[MAX_PROP_SIZE];
@@ -150,7 +139,7 @@ static int ufshcd_populate_vreg(struct device *dev, const char *name,
 	}
 
 	snprintf(prop_name, MAX_PROP_SIZE, "%s-supply", name);
-	if (!phandle_exists(np, prop_name, 0)) {
+	if (!of_parse_phandle(np, prop_name, 0)) {
 		dev_info(dev, "%s: Unable to find %s regulator, assuming enabled\n",
 				__func__, prop_name);
 		goto out;
@@ -230,6 +219,53 @@ static int ufshcd_parse_regulator_info(struct ufs_hba *hba)
 	err = ufshcd_populate_vreg(dev, "vccq2", &info->vccq2);
 out:
 	return err;
+}
+
+static int ufshcd_parse_pm_lvl_policy(struct ufs_hba *hba)
+{
+	struct device *dev = hba->dev;
+	struct device_node *np = dev->of_node;
+	u32 lvl_def[] = {UFS_PM_LVL_2, UFS_PM_LVL_5};
+	u32 lvl[2] = {0,}, i;
+
+	for (i = 0; i < ARRAY_SIZE(lvl); i++) {
+		if (of_property_read_u32_index(np, "pm_lvl_states", i, lvl +i)) {
+			dev_info(hba->dev,
+				"UFS power management: set default level%d index %d\n",
+				lvl_def[i], i);
+			lvl[i] = lvl_def[i];
+		}
+
+		if (lvl[i] >= UFS_PM_LVL_MAX) {
+			dev_warn(hba->dev,
+				"UFS power management: out of range level%d index %d\n",
+				lvl[i], i);
+			lvl[i] =  lvl_def[i];
+		}
+	}
+
+	hba->rpm_lvl = lvl[0];
+	hba->spm_lvl = lvl[1];
+
+	return 0;
+}
+static int ufshcd_parse_caps_info(struct ufs_hba *hba)
+{
+	struct device *dev = hba->dev;
+	struct device_node *np = dev->of_node;
+
+	if (of_find_property(np, "ufs-cap-clk-gating", NULL))
+		hba->caps |= UFSHCD_CAP_CLK_GATING;
+	if (of_find_property(np, "ufs-cap-hibern8-with-clk-gating", NULL))
+		hba->caps |= UFSHCD_CAP_HIBERN8_WITH_CLK_GATING;
+	if (of_find_property(np, "ufs-cap-clk-scaling", NULL))
+		hba->caps |= UFSHCD_CAP_CLK_SCALING;
+	if (of_find_property(np, "ufs-cap-auto-bkops-suspend", NULL))
+		hba->caps |= UFSHCD_CAP_AUTO_BKOPS_SUSPEND;
+	if (of_find_property(np, "ufs-cap-fake-clk-gating", NULL))
+		hba->caps |= UFSHCD_CAP_FAKE_CLK_GATING;
+
+	return 0;
 }
 
 #ifdef CONFIG_PM
@@ -351,25 +387,46 @@ int ufshcd_pltfrm_init(struct platform_device *pdev,
 		goto dealloc_host;
 	}
 
+	ufshcd_parse_pm_lvl_policy(hba);
+	ufshcd_parse_caps_info(hba);
+	pm_runtime_set_active(&pdev->dev);
+	pm_runtime_enable(&pdev->dev);
+
 	ufshcd_init_lanes_per_dir(hba);
 
 	err = ufshcd_init(hba, mmio_base, irq);
 	if (err) {
 		dev_err(dev, "Initialization failed\n");
-		goto dealloc_host;
+		goto out_disable_rpm;
 	}
 
-	pm_runtime_set_active(&pdev->dev);
-	pm_runtime_enable(&pdev->dev);
+	platform_set_drvdata(pdev, hba);
 
 	return 0;
 
+out_disable_rpm:
+	pm_runtime_disable(&pdev->dev);
+	pm_runtime_set_suspended(&pdev->dev);
 dealloc_host:
 	ufshcd_dealloc_host(hba);
 out:
 	return err;
 }
 EXPORT_SYMBOL_GPL(ufshcd_pltfrm_init);
+
+/**
+ * ufshcd_pltfrm_exit - exit common routine for platform driver
+ * @pdev: pointer to platform device handle
+ */
+void ufshcd_pltfrm_exit(struct platform_device *pdev)
+{
+	struct ufs_hba *hba =  platform_get_drvdata(pdev);
+
+	disable_irq(hba->irq);
+
+	ufshcd_remove(hba);
+}
+EXPORT_SYMBOL_GPL(ufshcd_pltfrm_exit);
 
 MODULE_AUTHOR("Santosh Yaragnavi <santosh.sy@samsung.com>");
 MODULE_AUTHOR("Vinayak Holikatti <h.vinayak@samsung.com>");

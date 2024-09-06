@@ -232,7 +232,8 @@ static void kgdboc_put_char(u8 chr)
 					kgdb_tty_line, chr);
 }
 
-static int param_set_kgdboc_var(const char *kmessage, struct kernel_param *kp)
+static int param_set_kgdboc_var(const char *kmessage,
+				const struct kernel_param *kp)
 {
 	size_t len = strlen(kmessage);
 
@@ -304,16 +305,16 @@ static int kgdboc_option_setup(char *opt)
 {
 	if (!opt) {
 		pr_err("config string not provided\n");
-		return 1;
+		return -EINVAL;
 	}
 
 	if (strlen(opt) >= MAX_CONFIG_LEN) {
 		pr_err("config string too long\n");
-		return 1;
+		return -ENOSPC;
 	}
 	strcpy(config, opt);
 
-	return 1;
+	return 0;
 }
 
 __setup("kgdboc=", kgdboc_option_setup);

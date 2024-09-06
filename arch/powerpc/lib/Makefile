@@ -10,9 +10,6 @@ ccflags-$(CONFIG_PPC64)	:= $(NO_MINIMAL_TOC)
 CFLAGS_REMOVE_code-patching.o = $(CC_FLAGS_FTRACE)
 CFLAGS_REMOVE_feature-fixups.o = $(CC_FLAGS_FTRACE)
 
-CFLAGS_code-patching.o += $(DISABLE_LATENT_ENTROPY_PLUGIN)
-CFLAGS_feature-fixups.o += $(DISABLE_LATENT_ENTROPY_PLUGIN)
-
 obj-y += string.o alloc.o code-patching.o feature-fixups.o
 
 obj-$(CONFIG_PPC32)	+= div64.o copy_32.o crtsavres.o
@@ -21,8 +18,8 @@ obj-$(CONFIG_PPC32)	+= div64.o copy_32.o crtsavres.o
 # 64-bit linker creates .sfpr on demand for final link (vmlinux),
 # so it is only needed for modules, and only for older linkers which
 # do not support --save-restore-funcs
-ifeq ($(call ld-ifversion, -lt, 225000000, y)$(CONFIG_PPC64),yy)
-always	+= crtsavres.o
+ifeq ($(call ld-ifversion, -lt, 225000000, y),y)
+extra-$(CONFIG_PPC64)	+= crtsavres.o
 endif
 
 obj64-y	+= copypage_64.o copyuser_64.o mem_64.o hweight_64.o \

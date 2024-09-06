@@ -375,17 +375,11 @@ Description:	information about CPUs heterogeneity.
 		cpu_capacity: capacity of cpu#.
 
 What:		/sys/devices/system/cpu/vulnerabilities
-		/sys/devices/system/cpu/vulnerabilities/gather_data_sampling
-		/sys/devices/system/cpu/vulnerabilities/itlb_multihit
-		/sys/devices/system/cpu/vulnerabilities/l1tf
-		/sys/devices/system/cpu/vulnerabilities/mds
 		/sys/devices/system/cpu/vulnerabilities/meltdown
-		/sys/devices/system/cpu/vulnerabilities/mmio_stale_data
-		/sys/devices/system/cpu/vulnerabilities/spec_store_bypass
 		/sys/devices/system/cpu/vulnerabilities/spectre_v1
 		/sys/devices/system/cpu/vulnerabilities/spectre_v2
-		/sys/devices/system/cpu/vulnerabilities/srbds
-		/sys/devices/system/cpu/vulnerabilities/tsx_async_abort
+		/sys/devices/system/cpu/vulnerabilities/spec_store_bypass
+		/sys/devices/system/cpu/vulnerabilities/l1tf
 Date:		January 2018
 Contact:	Linux kernel mailing list <linux-kernel@vger.kernel.org>
 Description:	Information about CPU vulnerabilities
@@ -398,7 +392,8 @@ Description:	Information about CPU vulnerabilities
 		"Vulnerable"	  CPU is affected and no mitigation in effect
 		"Mitigation: $M"  CPU is affected and mitigation $M is in effect
 
-		See also: Documentation/admin-guide/hw-vuln/index.rst
+		Details about the l1tf file can be found in
+		Documentation/admin-guide/l1tf.rst
 
 What:		/sys/devices/system/cpu/smt
 		/sys/devices/system/cpu/smt/active

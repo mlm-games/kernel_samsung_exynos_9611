@@ -187,7 +187,6 @@ struct dm_integrity_c {
 	struct rb_root in_progress;
 	wait_queue_head_t endio_wait;
 	struct workqueue_struct *wait_wq;
-	struct workqueue_struct *offload_wq;
 
 	unsigned char commit_seq;
 	commit_id_t commit_ids[N_COMMIT_IDS];
@@ -1158,7 +1157,7 @@ static void dec_in_flight(struct dm_integrity_io *dio)
 			dio->range.logical_sector += dio->range.n_sectors;
 			bio_advance(bio, dio->range.n_sectors << SECTOR_SHIFT);
 			INIT_WORK(&dio->work, integrity_bio_wait);
-			queue_work(ic->offload_wq, &dio->work);
+			queue_work(ic->wait_wq, &dio->work);
 			return;
 		}
 		do_endio_flush(ic, dio);
@@ -1257,12 +1256,11 @@ static void integrity_metadata(struct work_struct *w)
 			checksums = checksums_onstack;
 
 		__bio_for_each_segment(bv, bio, iter, dio->orig_bi_iter) {
-			struct bio_vec bv_copy = bv;
 			unsigned pos;
 			char *mem, *checksums_ptr;
 
 again:
-			mem = (char *)kmap_atomic(bv_copy.bv_page) + bv_copy.bv_offset;
+			mem = (char *)kmap_atomic(bv.bv_page) + bv.bv_offset;
 			pos = 0;
 			checksums_ptr = checksums;
 			do {
@@ -1271,7 +1269,7 @@ again:
 				sectors_to_process -= ic->sectors_per_block;
 				pos += ic->sectors_per_block << SECTOR_SHIFT;
 				sector += ic->sectors_per_block;
-			} while (pos < bv_copy.bv_len && sectors_to_process && checksums != checksums_onstack);
+			} while (pos < bv.bv_len && sectors_to_process && checksums != checksums_onstack);
 			kunmap_atomic(mem);
 
 			r = dm_integrity_rw_tag(ic, checksums, &dio->metadata_block, &dio->metadata_offset,
@@ -1291,9 +1289,9 @@ again:
 			if (!sectors_to_process)
 				break;
 
-			if (unlikely(pos < bv_copy.bv_len)) {
-				bv_copy.bv_offset += pos;
-				bv_copy.bv_len -= pos;
+			if (unlikely(pos < bv.bv_len)) {
+				bv.bv_offset += pos;
+				bv.bv_len -= pos;
 				goto again;
 			}
 		}
@@ -1579,7 +1577,7 @@ static void dm_integrity_map_continue(struct dm_integrity_io *dio, bool from_map
 
 	if (need_sync_io && from_map) {
 		INIT_WORK(&dio->work, integrity_bio_wait);
-		queue_work(ic->offload_wq, &dio->work);
+		queue_work(ic->metadata_wq, &dio->work);
 		return;
 	}
 
@@ -2919,17 +2917,17 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 				goto bad;
 			}
 			ic->sectors_per_block = val >> SECTOR_SHIFT;
-		} else if (!strncmp(opt_string, "internal_hash:", strlen("internal_hash:"))) {
+		} else if (!memcmp(opt_string, "internal_hash:", strlen("internal_hash:"))) {
 			r = get_alg_and_key(opt_string, &ic->internal_hash_alg, &ti->error,
 					    "Invalid internal_hash argument");
 			if (r)
 				goto bad;
-		} else if (!strncmp(opt_string, "journal_crypt:", strlen("journal_crypt:"))) {
+		} else if (!memcmp(opt_string, "journal_crypt:", strlen("journal_crypt:"))) {
 			r = get_alg_and_key(opt_string, &ic->journal_crypt_alg, &ti->error,
 					    "Invalid journal_crypt argument");
 			if (r)
 				goto bad;
-		} else if (!strncmp(opt_string, "journal_mac:", strlen("journal_mac:"))) {
+		} else if (!memcmp(opt_string, "journal_mac:", strlen("journal_mac:"))) {
 			r = get_alg_and_key(opt_string, &ic->journal_mac_alg,  &ti->error,
 					    "Invalid journal_mac argument");
 			if (r)
@@ -3002,14 +3000,6 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	 */
 	ic->wait_wq = alloc_workqueue("dm-integrity-wait", WQ_MEM_RECLAIM | WQ_UNBOUND, 1);
 	if (!ic->wait_wq) {
-		ti->error = "Cannot allocate workqueue";
-		r = -ENOMEM;
-		goto bad;
-	}
-
-	ic->offload_wq = alloc_workqueue("dm-integrity-offload", WQ_MEM_RECLAIM,
-					  METADATA_WORKQUEUE_MAX_ACTIVE);
-	if (!ic->offload_wq) {
 		ti->error = "Cannot allocate workqueue";
 		r = -ENOMEM;
 		goto bad;
@@ -3157,6 +3147,8 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	}
 
 	if (should_write_sb) {
+		int r;
+
 		init_journal(ic, 0, ic->journal_sections, 0);
 		r = dm_integrity_failed(ic);
 		if (unlikely(r)) {
@@ -3197,8 +3189,6 @@ static void dm_integrity_dtr(struct dm_target *ti)
 		destroy_workqueue(ic->metadata_wq);
 	if (ic->wait_wq)
 		destroy_workqueue(ic->wait_wq);
-	if (ic->offload_wq)
-		destroy_workqueue(ic->offload_wq);
 	if (ic->commit_wq)
 		destroy_workqueue(ic->commit_wq);
 	if (ic->writer_wq)
@@ -3275,13 +3265,11 @@ int __init dm_integrity_init(void)
 	}
 
 	r = dm_register_target(&integrity_target);
-	if (r < 0) {
-		DMERR("register failed %d", r);
-		kmem_cache_destroy(journal_io_cache);
-		return r;
-	}
 
-	return 0;
+	if (r < 0)
+		DMERR("register failed %d", r);
+
+	return r;
 }
 
 void dm_integrity_exit(void)

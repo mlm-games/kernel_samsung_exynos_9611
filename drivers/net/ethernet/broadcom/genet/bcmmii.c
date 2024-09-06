@@ -277,11 +277,7 @@ int bcmgenet_mii_config(struct net_device *dev, bool init)
 	 */
 	if (priv->ext_phy) {
 		reg = bcmgenet_ext_readl(priv, EXT_RGMII_OOB_CTRL);
-		reg |= id_mode_dis;
-		if (GENET_IS_V1(priv) || GENET_IS_V2(priv) || GENET_IS_V3(priv))
-			reg |= RGMII_MODE_EN_V123;
-		else
-			reg |= RGMII_MODE_EN;
+		reg |= RGMII_MODE_EN | id_mode_dis;
 		bcmgenet_ext_writel(priv, reg, EXT_RGMII_OOB_CTRL);
 	}
 
@@ -296,12 +292,11 @@ int bcmgenet_mii_probe(struct net_device *dev)
 	struct bcmgenet_priv *priv = netdev_priv(dev);
 	struct device_node *dn = priv->pdev->dev.of_node;
 	struct phy_device *phydev;
-	u32 phy_flags = 0;
+	u32 phy_flags;
 	int ret;
 
 	/* Communicate the integrated PHY revision */
-	if (priv->internal_phy)
-		phy_flags = priv->gphy_rev;
+	phy_flags = priv->gphy_rev;
 
 	/* Initialize link state variables that bcmgenet_mii_setup() uses */
 	priv->old_link = -1;
@@ -414,10 +409,6 @@ static int bcmgenet_mii_register(struct bcmgenet_priv *priv)
 	int id, ret;
 
 	pres = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!pres) {
-		dev_err(&pdev->dev, "Invalid resource\n");
-		return -EINVAL;
-	}
 	memset(&res, 0, sizeof(res));
 	memset(&ppd, 0, sizeof(ppd));
 
@@ -607,7 +598,6 @@ void bcmgenet_mii_exit(struct net_device *dev)
 	if (of_phy_is_fixed_link(dn))
 		of_phy_deregister_fixed_link(dn);
 	of_node_put(priv->phy_dn);
-	clk_prepare_enable(priv->clk);
 	platform_device_unregister(priv->mii_pdev);
-	clk_disable_unprepare(priv->clk);
+	platform_device_put(priv->mii_pdev);
 }

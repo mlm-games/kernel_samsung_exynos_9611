@@ -328,7 +328,7 @@ static ssize_t iio_debugfs_write_reg(struct file *file,
 	char buf[80];
 	int ret;
 
-	count = min(count, sizeof(buf) - 1);
+	count = min_t(size_t, count, (sizeof(buf)-1));
 	if (copy_from_user(buf, userbuf, count))
 		return -EFAULT;
 
@@ -1741,9 +1741,9 @@ EXPORT_SYMBOL(iio_device_register);
  **/
 void iio_device_unregister(struct iio_dev *indio_dev)
 {
-	cdev_device_del(&indio_dev->chrdev, &indio_dev->dev);
-
 	mutex_lock(&indio_dev->info_exist_lock);
+
+	cdev_device_del(&indio_dev->chrdev, &indio_dev->dev);
 
 	iio_device_unregister_debugfs(indio_dev);
 

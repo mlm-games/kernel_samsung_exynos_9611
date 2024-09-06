@@ -380,8 +380,8 @@ static void lpuart_dma_tx(struct lpuart_port *sport)
 	}
 
 	sport->dma_tx_desc = dmaengine_prep_slave_sg(sport->dma_tx_chan, sgl,
-					ret, DMA_MEM_TO_DEV,
-					DMA_PREP_INTERRUPT);
+					sport->dma_tx_nents,
+					DMA_MEM_TO_DEV, DMA_PREP_INTERRUPT);
 	if (!sport->dma_tx_desc) {
 		dma_unmap_sg(dev, sgl, sport->dma_tx_nents, DMA_TO_DEVICE);
 		dev_err(dev, "Cannot prepare TX slave DMA!\n");
@@ -532,26 +532,26 @@ static int lpuart32_poll_init(struct uart_port *port)
 	spin_lock_irqsave(&sport->port.lock, flags);
 
 	/* Disable Rx & Tx */
-	lpuart32_write(&sport->port, UARTCTRL, 0);
+	writel(0, sport->port.membase + UARTCTRL);
 
-	temp = lpuart32_read(&sport->port, UARTFIFO);
+	temp = readl(sport->port.membase + UARTFIFO);
 
 	/* Enable Rx and Tx FIFO */
-	lpuart32_write(&sport->port, UARTFIFO,
-		       temp | UARTFIFO_RXFE | UARTFIFO_TXFE);
+	writel(temp | UARTFIFO_RXFE | UARTFIFO_TXFE,
+		   sport->port.membase + UARTFIFO);
 
 	/* flush Tx and Rx FIFO */
-	lpuart32_write(&sport->port, UARTFIFO,
-		       UARTFIFO_TXFLUSH | UARTFIFO_RXFLUSH);
+	writel(UARTFIFO_TXFLUSH | UARTFIFO_RXFLUSH,
+			sport->port.membase + UARTFIFO);
 
 	/* explicitly clear RDRF */
-	if (lpuart32_read(&sport->port, UARTSTAT) & UARTSTAT_RDRF) {
-		lpuart32_read(&sport->port, UARTDATA);
-		lpuart32_write(&sport->port, UARTFIFO, UARTFIFO_RXUF);
+	if (readl(sport->port.membase + UARTSTAT) & UARTSTAT_RDRF) {
+		readl(sport->port.membase + UARTDATA);
+		writel(UARTFIFO_RXUF, sport->port.membase + UARTFIFO);
 	}
 
 	/* Enable Rx and Tx */
-	lpuart32_write(&sport->port, UARTCTRL, UARTCTRL_RE | UARTCTRL_TE);
+	writel(UARTCTRL_RE | UARTCTRL_TE, sport->port.membase + UARTCTRL);
 	spin_unlock_irqrestore(&sport->port.lock, flags);
 
 	return 0;
@@ -559,18 +559,18 @@ static int lpuart32_poll_init(struct uart_port *port)
 
 static void lpuart32_poll_put_char(struct uart_port *port, unsigned char c)
 {
-	while (!(lpuart32_read(port, UARTSTAT) & UARTSTAT_TDRE))
+	while (!(readl(port->membase + UARTSTAT) & UARTSTAT_TDRE))
 		barrier();
 
-	lpuart32_write(port, UARTDATA, c);
+	writel(c, port->membase + UARTDATA);
 }
 
 static int lpuart32_poll_get_char(struct uart_port *port)
 {
-	if (!(lpuart32_read(port, UARTWATER) >> UARTWATER_RXCNT_OFF))
+	if (!(readl(port->membase + UARTSTAT) & UARTSTAT_RDRF))
 		return NO_POLL_CHAR;
 
-	return lpuart32_read(port, UARTDATA);
+	return readl(port->membase + UARTDATA);
 }
 #endif
 
@@ -998,7 +998,7 @@ static inline int lpuart_start_rx_dma(struct lpuart_port *sport)
 	 * 10ms at any baud rate.
 	 */
 	sport->rx_dma_rng_buf_len = (DMA_RX_TIMEOUT * baud /  bits / 1000) * 2;
-	sport->rx_dma_rng_buf_len = (1 << fls(sport->rx_dma_rng_buf_len));
+	sport->rx_dma_rng_buf_len = (1 << (fls(sport->rx_dma_rng_buf_len) - 1));
 	if (sport->rx_dma_rng_buf_len < 16)
 		sport->rx_dma_rng_buf_len = 16;
 
@@ -1106,9 +1106,9 @@ static int lpuart_config_rs485(struct uart_port *port,
 		 * Note: UART is assumed to be active high.
 		 */
 		if (rs485->flags & SER_RS485_RTS_ON_SEND)
-			modem |= UARTMODEM_TXRTSPOL;
-		else if (rs485->flags & SER_RS485_RTS_AFTER_SEND)
 			modem &= ~UARTMODEM_TXRTSPOL;
+		else if (rs485->flags & SER_RS485_RTS_AFTER_SEND)
+			modem |= UARTMODEM_TXRTSPOL;
 	}
 
 	/* Store the new configuration */
@@ -1201,34 +1201,12 @@ static void lpuart32_break_ctl(struct uart_port *port, int break_state)
 {
 	unsigned long temp;
 
-	temp = lpuart32_read(port, UARTCTRL);
+	temp = lpuart32_read(port, UARTCTRL) & ~UARTCTRL_SBK;
 
-	/*
-	 * LPUART IP now has two known bugs, one is CTS has higher priority than the
-	 * break signal, which causes the break signal sending through UARTCTRL_SBK
-	 * may impacted by the CTS input if the HW flow control is enabled. It
-	 * exists on all platforms we support in this driver.
-	 * Another bug is i.MX8QM LPUART may have an additional break character
-	 * being sent after SBK was cleared.
-	 * To avoid above two bugs, we use Transmit Data Inversion function to send
-	 * the break signal instead of UARTCTRL_SBK.
-	 */
-	if (break_state != 0) {
-		/*
-		 * Disable the transmitter to prevent any data from being sent out
-		 * during break, then invert the TX line to send break.
-		 */
-		temp &= ~UARTCTRL_TE;
-		lpuart32_write(port, temp, UARTCTRL);
-		temp |= UARTCTRL_TXINV;
-		lpuart32_write(port, temp, UARTCTRL);
-	} else {
-		/* Disable the TXINV to turn off break and re-enable transmitter. */
-		temp &= ~UARTCTRL_TXINV;
-		lpuart32_write(port, temp, UARTCTRL);
-		temp |= UARTCTRL_TE;
-		lpuart32_write(port, temp, UARTCTRL);
-	}
+	if (break_state != 0)
+		temp |= UARTCTRL_SBK;
+
+	lpuart32_write(port, temp, UARTCTRL);
 }
 
 static void lpuart_setup_watermark(struct lpuart_port *sport)
@@ -2020,9 +1998,6 @@ lpuart32_console_get_options(struct lpuart_port *sport, int *baud,
 
 	bd = lpuart32_read(&sport->port, UARTBAUD);
 	bd &= UARTBAUD_SBR_MASK;
-	if (!bd)
-		return;
-
 	sbr = bd;
 	uartclk = clk_get_rate(sport->clk);
 	/*
@@ -2142,8 +2117,6 @@ static int __init lpuart32_imx_early_console_setup(struct earlycon_device *devic
 OF_EARLYCON_DECLARE(lpuart, "fsl,vf610-lpuart", lpuart_early_console_setup);
 OF_EARLYCON_DECLARE(lpuart32, "fsl,ls1021a-lpuart", lpuart32_early_console_setup);
 OF_EARLYCON_DECLARE(lpuart32, "fsl,imx7ulp-lpuart", lpuart32_imx_early_console_setup);
-OF_EARLYCON_DECLARE(lpuart32, "fsl,imx8ulp-lpuart", lpuart32_imx_early_console_setup);
-OF_EARLYCON_DECLARE(lpuart32, "fsl,imx8qxp-lpuart", lpuart32_imx_early_console_setup);
 EARLYCON_DECLARE(lpuart, lpuart_early_console_setup);
 EARLYCON_DECLARE(lpuart32, lpuart32_early_console_setup);
 
@@ -2194,7 +2167,7 @@ static int lpuart_probe(struct platform_device *pdev)
 		return PTR_ERR(sport->port.membase);
 
 	sport->port.membase += sdata->reg_off;
-	sport->port.mapbase = res->start + sdata->reg_off;
+	sport->port.mapbase = res->start;
 	sport->port.dev = &pdev->dev;
 	sport->port.type = PORT_LPUART;
 	ret = platform_get_irq(pdev, 0);

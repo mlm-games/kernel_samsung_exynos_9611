@@ -528,8 +528,8 @@ tot_hitm_cmp(struct perf_hpp_fmt *fmt __maybe_unused,
 {
 	struct c2c_hist_entry *c2c_left;
 	struct c2c_hist_entry *c2c_right;
-	uint64_t tot_hitm_left;
-	uint64_t tot_hitm_right;
+	unsigned int tot_hitm_left;
+	unsigned int tot_hitm_right;
 
 	c2c_left  = container_of(left, struct c2c_hist_entry, he);
 	c2c_right = container_of(right, struct c2c_hist_entry, he);
@@ -562,8 +562,7 @@ __f ## _cmp(struct perf_hpp_fmt *fmt __maybe_unused,			\
 									\
 	c2c_left  = container_of(left, struct c2c_hist_entry, he);	\
 	c2c_right = container_of(right, struct c2c_hist_entry, he);	\
-	return (uint64_t) c2c_left->stats.__f -				\
-	       (uint64_t) c2c_right->stats.__f;				\
+	return c2c_left->stats.__f - c2c_right->stats.__f;		\
 }
 
 #define STAT_FN(__f)		\
@@ -616,8 +615,7 @@ ld_llcmiss_cmp(struct perf_hpp_fmt *fmt __maybe_unused,
 	c2c_left  = container_of(left, struct c2c_hist_entry, he);
 	c2c_right = container_of(right, struct c2c_hist_entry, he);
 
-	return (uint64_t) llc_miss(&c2c_left->stats) -
-	       (uint64_t) llc_miss(&c2c_right->stats);
+	return llc_miss(&c2c_left->stats) - llc_miss(&c2c_right->stats);
 }
 
 static uint64_t total_records(struct c2c_stats *stats)
@@ -886,8 +884,8 @@ percent_rmt_hitm_cmp(struct perf_hpp_fmt *fmt __maybe_unused,
 	double per_left;
 	double per_right;
 
-	per_left  = PERCENT(left, rmt_hitm);
-	per_right = PERCENT(right, rmt_hitm);
+	per_left  = PERCENT(left, lcl_hitm);
+	per_right = PERCENT(right, lcl_hitm);
 
 	return per_left - per_right;
 }
@@ -2456,7 +2454,6 @@ static int build_cl_output(char *cl_sort, bool no_source)
 	bool add_sym   = false;
 	bool add_dso   = false;
 	bool add_src   = false;
-	int ret = 0;
 
 	if (!buf)
 		return -ENOMEM;
@@ -2475,8 +2472,7 @@ static int build_cl_output(char *cl_sort, bool no_source)
 			add_dso = true;
 		} else if (strcmp(tok, "offset")) {
 			pr_err("unrecognized sort token: %s\n", tok);
-			ret = -EINVAL;
-			goto err;
+			return -EINVAL;
 		}
 	}
 
@@ -2499,15 +2495,13 @@ static int build_cl_output(char *cl_sort, bool no_source)
 		add_sym ? "symbol," : "",
 		add_dso ? "dso," : "",
 		add_src ? "cl_srcline," : "",
-		"node") < 0) {
-		ret = -ENOMEM;
-		goto err;
-	}
+		"node") < 0)
+		return -ENOMEM;
 
 	c2c.show_src = add_src;
-err:
+
 	free(buf);
-	return ret;
+	return 0;
 }
 
 static int setup_coalesce(const char *coalesce, bool no_source)
@@ -2552,7 +2546,9 @@ static int perf_c2c__report(int argc, const char **argv)
 		   "the input file to process"),
 	OPT_INCR('N', "node-info", &c2c.node_info,
 		 "show extra node info in report (repeat for more info)"),
+#ifdef HAVE_SLANG_SUPPORT
 	OPT_BOOLEAN(0, "stdio", &c2c.use_stdio, "Use the stdio interface"),
+#endif
 	OPT_BOOLEAN(0, "stats", &c2c.stats_only,
 		    "Display only statistic tables (implies --stdio)"),
 	OPT_BOOLEAN(0, "full-symbols", &c2c.symbol_full,
@@ -2578,10 +2574,6 @@ static int perf_c2c__report(int argc, const char **argv)
 			     PARSE_OPT_STOP_AT_NON_OPTION);
 	if (argc)
 		usage_with_options(report_c2c_usage, options);
-
-#ifndef HAVE_SLANG_SUPPORT
-	c2c.use_stdio = true;
-#endif
 
 	if (c2c.stats_only)
 		c2c.use_stdio = true;

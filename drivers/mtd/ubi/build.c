@@ -363,6 +363,9 @@ static ssize_t dev_attribute_show(struct device *dev,
 	 * we still can use 'ubi->ubi_num'.
 	 */
 	ubi = container_of(dev, struct ubi_device, dev);
+	ubi = ubi_get_device(ubi->ubi_num);
+	if (!ubi)
+		return -ENODEV;
 
 	if (attr == &dev_eraseblock_size)
 		ret = sprintf(buf, "%d\n", ubi->leb_size);
@@ -391,6 +394,7 @@ static ssize_t dev_attribute_show(struct device *dev,
 	else
 		ret = -EINVAL;
 
+	ubi_put_device(ubi);
 	return ret;
 }
 
@@ -480,7 +484,6 @@ static int uif_init(struct ubi_device *ubi)
 			err = ubi_add_volume(ubi, ubi->volumes[i]);
 			if (err) {
 				ubi_err(ubi, "cannot add volume %d", i);
-				ubi->volumes[i] = NULL;
 				goto out_volumes;
 			}
 		}
@@ -663,21 +666,6 @@ static int io_init(struct ubi_device *ubi, int max_beb_per1024)
 						~(ubi->hdrs_min_io_size - 1);
 		ubi->vid_hdr_shift = ubi->vid_hdr_offset -
 						ubi->vid_hdr_aloffset;
-	}
-
-	/*
-	 * Memory allocation for VID header is ubi->vid_hdr_alsize
-	 * which is described in comments in io.c.
-	 * Make sure VID header shift + UBI_VID_HDR_SIZE not exceeds
-	 * ubi->vid_hdr_alsize, so that all vid header operations
-	 * won't access memory out of bounds.
-	 */
-	if ((ubi->vid_hdr_shift + UBI_VID_HDR_SIZE) > ubi->vid_hdr_alsize) {
-		ubi_err(ubi, "Invalid VID header offset %d, VID header shift(%d)"
-			" + VID header size(%zu) > VID header aligned size(%d).",
-			ubi->vid_hdr_offset, ubi->vid_hdr_shift,
-			UBI_VID_HDR_SIZE, ubi->vid_hdr_alsize);
-		return -EINVAL;
 	}
 
 	/* Similar for the data offset */
@@ -869,13 +857,6 @@ int ubi_attach_mtd_dev(struct mtd_info *mtd, int ubi_num,
 		return -EINVAL;
 	}
 
-	/* UBI cannot work on flashes with zero erasesize. */
-	if (!mtd->erasesize) {
-		pr_err("ubi: refuse attaching mtd%d - zero erasesize flash is not supported\n",
-			mtd->index);
-		return -EINVAL;
-	}
-
 	if (ubi_num == UBI_DEV_NUM_AUTO) {
 		/* Search for an empty slot in the @ubi_devices array */
 		for (ubi_num = 0; ubi_num < UBI_MAX_DEVICES; ubi_num++)
@@ -979,6 +960,9 @@ int ubi_attach_mtd_dev(struct mtd_info *mtd, int ubi_num,
 			goto out_detach;
 	}
 
+	/* Make device "available" before it becomes accessible via sysfs */
+	ubi_devices[ubi_num] = ubi;
+
 	err = uif_init(ubi);
 	if (err)
 		goto out_detach;
@@ -1023,7 +1007,6 @@ int ubi_attach_mtd_dev(struct mtd_info *mtd, int ubi_num,
 	wake_up_process(ubi->bgt_thread);
 	spin_unlock(&ubi->wl_lock);
 
-	ubi_devices[ubi_num] = ubi;
 	ubi_notify_all(ubi, UBI_VOLUME_ADDED, NULL);
 	return ubi_num;
 
@@ -1032,6 +1015,7 @@ out_debugfs:
 out_uif:
 	uif_close(ubi);
 out_detach:
+	ubi_devices[ubi_num] = NULL;
 	ubi_wl_close(ubi);
 	ubi_free_internal_volumes(ubi);
 	vfree(ubi->vtbl);
@@ -1108,10 +1092,10 @@ int ubi_detach_mtd_dev(int ubi_num, int anyway)
 	ubi_wl_close(ubi);
 	ubi_free_internal_volumes(ubi);
 	vfree(ubi->vtbl);
+	put_mtd_device(ubi->mtd);
 	vfree(ubi->peb_buf);
 	vfree(ubi->fm_buf);
 	ubi_msg(ubi, "mtd%d is detached", ubi->mtd->index);
-	put_mtd_device(ubi->mtd);
 	put_device(&ubi->dev);
 	return 0;
 }
@@ -1365,7 +1349,7 @@ static int bytes_str_to_int(const char *str)
  * This function returns zero in case of success and a negative error code in
  * case of error.
  */
-static int ubi_mtd_param_parse(const char *val, struct kernel_param *kp)
+static int ubi_mtd_param_parse(const char *val, const struct kernel_param *kp)
 {
 	int i, len;
 	struct mtd_dev_param *p;

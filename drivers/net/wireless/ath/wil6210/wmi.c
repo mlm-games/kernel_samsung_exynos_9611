@@ -140,15 +140,13 @@ static u32 wmi_addr_remap(u32 x)
 /**
  * Check address validity for WMI buffer; remap if needed
  * @ptr - internal (linker) fw/ucode address
- * @size - if non zero, validate the block does not
- *  exceed the device memory (bar)
  *
  * Valid buffer should be DWORD aligned
  *
  * return address for accessing buffer from the host;
  * if buffer is not valid, return NULL.
  */
-void __iomem *wmi_buffer_block(struct wil6210_priv *wil, __le32 ptr_, u32 size)
+void __iomem *wmi_buffer(struct wil6210_priv *wil, __le32 ptr_)
 {
 	u32 off;
 	u32 ptr = le32_to_cpu(ptr_);
@@ -163,15 +161,8 @@ void __iomem *wmi_buffer_block(struct wil6210_priv *wil, __le32 ptr_, u32 size)
 	off = HOSTADDR(ptr);
 	if (off > wil->bar_size - 4)
 		return NULL;
-	if (size && ((off + size > wil->bar_size) || (off + size < off)))
-		return NULL;
 
 	return wil->csr + off;
-}
-
-void __iomem *wmi_buffer(struct wil6210_priv *wil, __le32 ptr_)
-{
-	return wmi_buffer_block(wil, ptr_, 0);
 }
 
 /**
@@ -231,7 +222,7 @@ static int __wmi_send(struct wil6210_priv *wil, u16 cmdid, void *buf, u16 len)
 	uint retry;
 	int rc = 0;
 
-	if (len > r->entry_size - sizeof(cmd)) {
+	if (sizeof(cmd) + len > r->entry_size) {
 		wil_err(wil, "WMI size too large: %d bytes, max is %d\n",
 			(int)(sizeof(cmd) + len), r->entry_size);
 		return -ERANGE;
@@ -1011,16 +1002,15 @@ int wmi_call(struct wil6210_priv *wil, u16 cmdid, void *buf, u16 len,
 {
 	int rc;
 	unsigned long remain;
-	ulong flags;
 
 	mutex_lock(&wil->wmi_mutex);
 
-	spin_lock_irqsave(&wil->wmi_ev_lock, flags);
+	spin_lock(&wil->wmi_ev_lock);
 	wil->reply_id = reply_id;
 	wil->reply_buf = reply;
 	wil->reply_size = reply_size;
 	reinit_completion(&wil->wmi_call);
-	spin_unlock_irqrestore(&wil->wmi_ev_lock, flags);
+	spin_unlock(&wil->wmi_ev_lock);
 
 	rc = __wmi_send(wil, cmdid, buf, len);
 	if (rc)
@@ -1040,11 +1030,11 @@ int wmi_call(struct wil6210_priv *wil, u16 cmdid, void *buf, u16 len,
 	}
 
 out:
-	spin_lock_irqsave(&wil->wmi_ev_lock, flags);
+	spin_lock(&wil->wmi_ev_lock);
 	wil->reply_id = 0;
 	wil->reply_buf = NULL;
 	wil->reply_size = 0;
-	spin_unlock_irqrestore(&wil->wmi_ev_lock, flags);
+	spin_unlock(&wil->wmi_ev_lock);
 
 	mutex_unlock(&wil->wmi_mutex);
 

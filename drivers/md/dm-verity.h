@@ -63,6 +63,7 @@ struct dm_verity {
 	sector_t hash_level_block[DM_VERITY_MAX_LEVELS];
 
 	struct dm_verity_fec *fec;	/* forward error correction */
+	unsigned long *validated_blocks; /* bitset blocks validated */
 };
 
 struct dm_verity_io {
@@ -71,10 +72,10 @@ struct dm_verity_io {
 	/* original value of bio->bi_end_io */
 	bio_end_io_t *orig_bi_end_io;
 
-	struct bvec_iter iter;
-
 	sector_t block;
 	unsigned n_blocks;
+
+	struct bvec_iter iter;
 
 	struct work_struct work;
 
@@ -113,6 +114,12 @@ static inline u8 *verity_io_want_digest(struct dm_verity *v,
 	return (u8 *)(io + 1) + v->ahash_reqsize + v->digest_size;
 }
 
+static inline u8 *verity_io_digest_end(struct dm_verity *v,
+				       struct dm_verity_io *io)
+{
+	return verity_io_want_digest(v, io) + v->digest_size;
+}
+
 extern int verity_for_bv_block(struct dm_verity *v, struct dm_verity_io *io,
 			       struct bvec_iter *iter,
 			       int (*process)(struct dm_verity *v,
@@ -125,4 +132,15 @@ extern int verity_hash(struct dm_verity *v, struct ahash_request *req,
 extern int verity_hash_for_block(struct dm_verity *v, struct dm_verity_io *io,
 				 sector_t block, u8 *digest, bool *is_zero);
 
+extern void verity_status(struct dm_target *ti, status_type_t type,
+			unsigned status_flags, char *result, unsigned maxlen);
+extern int verity_prepare_ioctl(struct dm_target *ti,
+                struct block_device **bdev, fmode_t *mode);
+extern int verity_iterate_devices(struct dm_target *ti,
+				iterate_devices_callout_fn fn, void *data);
+extern void verity_io_hints(struct dm_target *ti, struct queue_limits *limits);
+extern void verity_dtr(struct dm_target *ti);
+extern int verity_ctr(struct dm_target *ti, unsigned argc, char **argv);
+extern int verity_map(struct dm_target *ti, struct bio *bio);
+extern void dm_verity_avb_error_handler(void);
 #endif /* DM_VERITY_H */

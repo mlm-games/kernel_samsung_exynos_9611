@@ -793,7 +793,7 @@ config SENSORS_LTC4261
 
 config SENSORS_LTQ_CPUTEMP
 	bool "Lantiq cpu temperature sensor driver"
-	depends on SOC_XWAY
+	depends on LANTIQ
 	help
 	  If you say yes here you get support for the temperature
 	  sensor inside your CPU.
@@ -1868,6 +1868,15 @@ config SENSORS_XGENE
 	help
 	  If you say yes here you get support for the temperature
 	  and power sensors for APM X-Gene SoC.
+
+config SENSORS_SEC_THERMISTOR
+    tristate "SEC Thermistor support"
+    depends on EXYNOS_ADC
+    default n
+    help
+      This driver supports SEC Thermistor sensor reading and its
+      interpretation. The driver uses s3c adc driver and needs
+      adc-temperature mapping table for conversion.
 
 if ACPI
 

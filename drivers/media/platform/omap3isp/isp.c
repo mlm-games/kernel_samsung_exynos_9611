@@ -727,10 +727,6 @@ static int isp_pipeline_enable(struct isp_pipeline *pipe,
 					s_stream, mode);
 			pipe->do_propagation = true;
 		}
-
-		/* Stop at the first external sub-device. */
-		if (subdev->dev != isp->dev)
-			break;
 	}
 
 	return 0;
@@ -845,10 +841,6 @@ static int isp_pipeline_disable(struct isp_pipeline *pipe)
 						      &subdev->entity);
 			failure = -ETIMEDOUT;
 		}
-
-		/* Stop at the first external sub-device. */
-		if (subdev->dev != isp->dev)
-			break;
 	}
 
 	return failure;
@@ -2286,16 +2278,7 @@ static int isp_probe(struct platform_device *pdev)
 
 	/* Regulators */
 	isp->isp_csiphy1.vdd = devm_regulator_get(&pdev->dev, "vdd-csiphy1");
-	if (IS_ERR(isp->isp_csiphy1.vdd)) {
-		ret = PTR_ERR(isp->isp_csiphy1.vdd);
-		goto error;
-	}
-
 	isp->isp_csiphy2.vdd = devm_regulator_get(&pdev->dev, "vdd-csiphy2");
-	if (IS_ERR(isp->isp_csiphy2.vdd)) {
-		ret = PTR_ERR(isp->isp_csiphy2.vdd);
-		goto error;
-	}
 
 	/* Clocks
 	 *
@@ -2313,10 +2296,8 @@ static int isp_probe(struct platform_device *pdev)
 		mem = platform_get_resource(pdev, IORESOURCE_MEM, i);
 		isp->mmio_base[map_idx] =
 			devm_ioremap_resource(isp->dev, mem);
-		if (IS_ERR(isp->mmio_base[map_idx])) {
-			ret = PTR_ERR(isp->mmio_base[map_idx]);
-			goto error;
-		}
+		if (IS_ERR(isp->mmio_base[map_idx]))
+			return PTR_ERR(isp->mmio_base[map_idx]);
 	}
 
 	ret = isp_get_clocks(isp);

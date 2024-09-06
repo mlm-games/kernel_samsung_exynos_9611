@@ -233,7 +233,7 @@ static int write_begin_slow(struct address_space *mapping,
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 	pgoff_t index = pos >> PAGE_SHIFT;
 	struct ubifs_budget_req req = { .new_page = 1 };
-	int err, appending = !!(pos + len > inode->i_size);
+	int uninitialized_var(err), appending = !!(pos + len > inode->i_size);
 	struct page *page;
 
 	dbg_gen("ino %lu, pos %llu, len %u, i_size %lld",
@@ -437,7 +437,7 @@ static int ubifs_write_begin(struct file *file, struct address_space *mapping,
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 	struct ubifs_inode *ui = ubifs_inode(inode);
 	pgoff_t index = pos >> PAGE_SHIFT;
-	int err, appending = !!(pos + len > inode->i_size);
+	int uninitialized_var(err), appending = !!(pos + len > inode->i_size);
 	int skipped_read = 0;
 	struct page *page;
 
@@ -797,9 +797,7 @@ static int ubifs_do_bulk_read(struct ubifs_info *c, struct bu_info *bu,
 
 		if (page_offset > end_index)
 			break;
-		page = pagecache_get_page(mapping, page_offset,
-				 FGP_LOCK|FGP_ACCESSED|FGP_CREAT|FGP_NOWAIT,
-				 ra_gfp_mask);
+		page = find_or_create_page(mapping, page_offset, ra_gfp_mask);
 		if (!page)
 			break;
 		if (!PageUptodate(page))
@@ -1041,7 +1039,7 @@ static int ubifs_writepage(struct page *page, struct writeback_control *wbc)
 		if (page->index >= synced_i_size >> PAGE_SHIFT) {
 			err = inode->i_sb->s_op->write_inode(inode, NULL);
 			if (err)
-				goto out_redirty;
+				goto out_unlock;
 			/*
 			 * The inode has been written, but the write-buffer has
 			 * not been synchronized, so in case of an unclean
@@ -1069,17 +1067,11 @@ static int ubifs_writepage(struct page *page, struct writeback_control *wbc)
 	if (i_size > synced_i_size) {
 		err = inode->i_sb->s_op->write_inode(inode, NULL);
 		if (err)
-			goto out_redirty;
+			goto out_unlock;
 	}
 
 	return do_writepage(page, len);
-out_redirty:
-	/*
-	 * redirty_page_for_writepage() won't call ubifs_dirty_inode() because
-	 * it passes I_DIRTY_PAGES flag while calling __mark_inode_dirty(), so
-	 * there is no need to do space budget for dirty inode.
-	 */
-	redirty_page_for_writepage(wbc, page);
+
 out_unlock:
 	unlock_page(page);
 	return err;
@@ -1670,48 +1662,16 @@ static const char *ubifs_get_link(struct dentry *dentry,
 					    struct inode *inode,
 					    struct delayed_call *done)
 {
-	int err;
-	struct fscrypt_symlink_data *sd;
 	struct ubifs_inode *ui = ubifs_inode(inode);
-	struct fscrypt_str cstr;
-	struct fscrypt_str pstr;
 
-	if (!ubifs_crypt_is_encrypted(inode))
+	if (!IS_ENCRYPTED(inode))
 		return ui->data;
 
 	if (!dentry)
 		return ERR_PTR(-ECHILD);
 
-	err = fscrypt_get_encryption_info(inode);
-	if (err)
-		return ERR_PTR(err);
-
-	sd = (struct fscrypt_symlink_data *)ui->data;
-	cstr.name = sd->encrypted_path;
-	cstr.len = le16_to_cpu(sd->len);
-
-	if (cstr.len == 0)
-		return ERR_PTR(-ENOENT);
-
-	if ((cstr.len + sizeof(struct fscrypt_symlink_data) - 1) > ui->data_len)
-		return ERR_PTR(-EIO);
-
-	err = fscrypt_fname_alloc_buffer(inode, cstr.len, &pstr);
-	if (err)
-		return ERR_PTR(err);
-
-	err = fscrypt_fname_disk_to_usr(inode, 0, 0, &cstr, &pstr);
-	if (err) {
-		fscrypt_fname_free_buffer(&pstr);
-		return ERR_PTR(err);
-	}
-
-	pstr.name[pstr.len] = '\0';
-
-	set_delayed_call(done, kfree_link, pstr.name);
-	return pstr.name;
+	return fscrypt_get_symlink(inode, ui->data, ui->data_len, done);
 }
-
 
 const struct address_space_operations ubifs_file_address_operations = {
 	.readpage       = ubifs_readpage,

@@ -342,13 +342,6 @@ static int report__setup_sample_type(struct report *rep)
 				PERF_SAMPLE_BRANCH_ANY))
 		rep->nonany_branch_mode = true;
 
-#if !defined(HAVE_LIBUNWIND_SUPPORT) && !defined(HAVE_DWARF_SUPPORT)
-	if (dwarf_callchain_users) {
-		ui__warning("Please install libunwind or libdw "
-			    "development packages during the perf build.\n");
-	}
-#endif
-
 	return 0;
 }
 
@@ -401,7 +394,8 @@ static size_t hists__fprintf_nr_sample_events(struct hists *hists, struct report
 	if (evname != NULL)
 		ret += fprintf(fp, " of event '%s'", evname);
 
-	if (symbol_conf.show_ref_callgraph && evname && strstr(evname, "call-graph=no")) {
+	if (symbol_conf.show_ref_callgraph &&
+	    strstr(evname, "call-graph=no")) {
 		ret += fprintf(fp, ", show reference callgraph");
 	}
 
@@ -741,7 +735,6 @@ int cmd_report(int argc, const char **argv)
 	struct stat st;
 	bool has_br_stack = false;
 	int branch_mode = -1;
-	int last_key = 0;
 	bool branch_call_mode = false;
 	char callchain_default_opt[] = CALLCHAIN_DEFAULT_OPT;
 	const char * const report_usage[] = {
@@ -1048,8 +1041,7 @@ repeat:
 	else
 		use_browser = 0;
 
-	if ((last_key != K_SWITCH_INPUT_DATA) &&
-	    (setup_sorting(session->evlist) < 0)) {
+	if (setup_sorting(session->evlist) < 0) {
 		if (sort_order)
 			parse_options_usage(report_usage, options, "s", 1);
 		if (field_order)
@@ -1109,7 +1101,6 @@ repeat:
 	ret = __cmd_report(&report);
 	if (ret == K_SWITCH_INPUT_DATA) {
 		perf_session__delete(session);
-		last_key = K_SWITCH_INPUT_DATA;
 		goto repeat;
 	} else
 		ret = 0;

@@ -111,29 +111,27 @@ struct stmfts_data {
 	bool running;
 };
 
-static int stmfts_brightness_set(struct led_classdev *led_cdev,
+static void stmfts_brightness_set(struct led_classdev *led_cdev,
 					enum led_brightness value)
 {
 	struct stmfts_data *sdata = container_of(led_cdev,
 					struct stmfts_data, led_cdev);
 	int err;
 
-	if (value != sdata->led_status && sdata->ledvdd) {
-		if (!value) {
-			regulator_disable(sdata->ledvdd);
-		} else {
-			err = regulator_enable(sdata->ledvdd);
-			if (err) {
-				dev_warn(&sdata->client->dev,
-					 "failed to disable ledvdd regulator: %d\n",
-					 err);
-				return err;
-			}
-		}
-		sdata->led_status = value;
+	if (value == sdata->led_status || !sdata->ledvdd)
+		return;
+
+	if (!value) {
+		regulator_disable(sdata->ledvdd);
+	} else {
+		err = regulator_enable(sdata->ledvdd);
+		if (err)
+			dev_warn(&sdata->client->dev,
+				 "failed to disable ledvdd regulator: %d\n",
+				 err);
 	}
 
-	return 0;
+	sdata->led_status = value;
 }
 
 static enum led_brightness stmfts_brightness_get(struct led_classdev *led_cdev)
@@ -344,11 +342,11 @@ static int stmfts_input_open(struct input_dev *dev)
 
 	err = pm_runtime_get_sync(&sdata->client->dev);
 	if (err < 0)
-		goto out;
+		return err;
 
 	err = i2c_smbus_write_byte(sdata->client, STMFTS_MS_MT_SENSE_ON);
 	if (err)
-		goto out;
+		return err;
 
 	mutex_lock(&sdata->mutex);
 	sdata->running = true;
@@ -371,9 +369,7 @@ static int stmfts_input_open(struct input_dev *dev)
 				 "failed to enable touchkey\n");
 	}
 
-out:
-	pm_runtime_put_noidle(&sdata->client->dev);
-	return err;
+	return 0;
 }
 
 static void stmfts_input_close(struct input_dev *dev)
@@ -486,7 +482,7 @@ static ssize_t stmfts_sysfs_hover_enable_write(struct device *dev,
 
 	mutex_lock(&sdata->mutex);
 
-	if (value && sdata->hover_enabled)
+	if (value & sdata->hover_enabled)
 		goto out;
 
 	if (sdata->running)
@@ -617,7 +613,7 @@ static int stmfts_enable_led(struct stmfts_data *sdata)
 	sdata->led_cdev.name = STMFTS_DEV_NAME;
 	sdata->led_cdev.max_brightness = LED_ON;
 	sdata->led_cdev.brightness = LED_OFF;
-	sdata->led_cdev.brightness_set_blocking = stmfts_brightness_set;
+	sdata->led_cdev.brightness_set = stmfts_brightness_set;
 	sdata->led_cdev.brightness_get = stmfts_brightness_get;
 
 	err = devm_led_classdev_register(&sdata->client->dev, &sdata->led_cdev);

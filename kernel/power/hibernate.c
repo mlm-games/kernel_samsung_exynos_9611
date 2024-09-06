@@ -258,11 +258,6 @@ void swsusp_show_speed(ktime_t start, ktime_t stop,
 		(kps % 1000) / 10);
 }
 
-__weak int arch_resume_nosmt(void)
-{
-	return 0;
-}
-
 /**
  * create_image - Create a hibernation image.
  * @platform_mode: Whether or not to use the platform driver.
@@ -304,9 +299,13 @@ static int create_image(int platform_mode)
 	in_suspend = 1;
 	save_processor_state();
 	trace_suspend_resume(TPS("machine_suspend"), PM_EVENT_HIBERNATE, true);
+	dbg_snapshot_suspend("machine_suspend", swsusp_arch_suspend,
+				NULL, PM_EVENT_HIBERNATE, DSS_FLAG_IN);
 	error = swsusp_arch_suspend();
 	/* Restore control flow magically appears here */
 	restore_processor_state();
+	dbg_snapshot_suspend("machine_suspend", swsusp_arch_suspend,
+				NULL, PM_EVENT_HIBERNATE, DSS_FLAG_OUT);
 	trace_suspend_resume(TPS("machine_suspend"), PM_EVENT_HIBERNATE, false);
 	if (error)
 		pr_err("Error %d creating hibernation image\n", error);
@@ -326,10 +325,6 @@ static int create_image(int platform_mode)
 
  Enable_cpus:
 	enable_nonboot_cpus();
-
-	/* Allow architectures to do nosmt-specific post-resume dances */
-	if (!in_suspend)
-		error = arch_resume_nosmt();
 
  Platform_finish:
 	platform_finish(platform_mode);
@@ -618,7 +613,7 @@ static void power_down(void)
 	int error;
 
 	if (hibernation_mode == HIBERNATION_SUSPEND) {
-		error = suspend_devices_and_enter(mem_sleep_current);
+		error = suspend_devices_and_enter(PM_SUSPEND_MEM);
 		if (error) {
 			hibernation_mode = hibernation_ops ?
 						HIBERNATION_PLATFORM :
@@ -668,7 +663,7 @@ static int load_image_and_restore(void)
 		goto Unlock;
 
 	error = swsusp_read(&flags);
-	swsusp_close(FMODE_READ | FMODE_EXCL);
+	swsusp_close(FMODE_READ);
 	if (!error)
 		hibernation_restore(flags & SF_PLATFORM_MODE);
 
@@ -833,6 +828,17 @@ static int software_resume(void)
 
 	/* Check if the device is there */
 	swsusp_resume_device = name_to_dev_t(resume_file);
+
+	/*
+	 * name_to_dev_t is ineffective to verify parition if resume_file is in
+	 * integer format. (e.g. major:minor)
+	 */
+	if (isdigit(resume_file[0]) && resume_wait) {
+		int partno;
+		while (!get_gendisk(swsusp_resume_device, &partno))
+			msleep(10);
+	}
+
 	if (!swsusp_resume_device) {
 		/*
 		 * Some device discovery might still be in progress; we need
@@ -865,7 +871,7 @@ static int software_resume(void)
 	/* The snapshot device should not be opened while we're running */
 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
 		error = -EBUSY;
-		swsusp_close(FMODE_READ | FMODE_EXCL);
+		swsusp_close(FMODE_READ);
 		goto Unlock;
 	}
 
@@ -881,13 +887,6 @@ static int software_resume(void)
 	error = freeze_processes();
 	if (error)
 		goto Close_Finish;
-
-	error = freeze_kernel_threads();
-	if (error) {
-		thaw_processes();
-		goto Close_Finish;
-	}
-
 	error = load_image_and_restore();
 	thaw_processes();
  Finish:
@@ -901,7 +900,7 @@ static int software_resume(void)
 	pm_pr_dbg("Hibernation image not present or could not be loaded.\n");
 	return error;
  Close_Finish:
-	swsusp_close(FMODE_READ | FMODE_EXCL);
+	swsusp_close(FMODE_READ);
 	goto Finish;
 }
 
@@ -1186,7 +1185,7 @@ static int __init resumedelay_setup(char *str)
 	int rc = kstrtouint(str, 0, &resume_delay);
 
 	if (rc)
-		pr_warn("resumedelay: bad option string '%s'\n", str);
+		return rc;
 	return 1;
 }
 

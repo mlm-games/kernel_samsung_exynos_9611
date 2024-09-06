@@ -424,9 +424,6 @@ static int its_sync_lpi_pending_table(struct kvm_vcpu *vcpu)
 		}
 
 		irq = vgic_get_irq(vcpu->kvm, NULL, intids[i]);
-		if (!irq)
-			continue;
-
 		spin_lock(&irq->irq_lock);
 		irq->pending_latch = pendmask & (1U << bit_nr);
 		vgic_queue_irq_unlock(vcpu->kvm, irq);
@@ -707,9 +704,8 @@ static bool vgic_its_check_id(struct vgic_its *its, u64 baser, u32 id,
 	int l1_tbl_size = GITS_BASER_NR_PAGES(baser) * SZ_64K;
 	u64 indirect_ptr, type = GITS_BASER_TYPE(baser);
 	int esz = GITS_BASER_ENTRY_SIZE(baser);
-	int index, idx;
+	int index;
 	gfn_t gfn;
-	bool ret;
 
 	switch (type) {
 	case GITS_BASER_TYPE_DEVICE:
@@ -736,8 +732,7 @@ static bool vgic_its_check_id(struct vgic_its *its, u64 baser, u32 id,
 
 		if (eaddr)
 			*eaddr = addr;
-
-		goto out;
+		return kvm_is_visible_gfn(its->dev->kvm, gfn);
 	}
 
 	/* calculate and check the index into the 1st level */
@@ -771,12 +766,7 @@ static bool vgic_its_check_id(struct vgic_its *its, u64 baser, u32 id,
 
 	if (eaddr)
 		*eaddr = indirect_ptr;
-
-out:
-	idx = srcu_read_lock(&its->dev->kvm->srcu);
-	ret = kvm_is_visible_gfn(its->dev->kvm, gfn);
-	srcu_read_unlock(&its->dev->kvm->srcu, idx);
-	return ret;
+	return kvm_is_visible_gfn(its->dev->kvm, gfn);
 }
 
 static int vgic_its_alloc_collection(struct vgic_its *its,
@@ -1680,7 +1670,6 @@ static void vgic_its_destroy(struct kvm_device *kvm_dev)
 	mutex_unlock(&its->its_lock);
 
 	kfree(its);
-	kfree(kvm_dev);/* alloc by kvm_ioctl_create_device, free by .destroy */
 }
 
 int vgic_its_has_attr_regs(struct kvm_device *dev,
@@ -1838,7 +1827,7 @@ static int scan_its_table(struct vgic_its *its, gpa_t base, int size, int esz,
 
 	memset(entry, 0, esz);
 
-	while (true) {
+	while (len > 0) {
 		int next_offset;
 		size_t byte_offset;
 
@@ -1851,9 +1840,6 @@ static int scan_its_table(struct vgic_its *its, gpa_t base, int size, int esz,
 			return next_offset;
 
 		byte_offset = next_offset * esz;
-		if (byte_offset >= len)
-			break;
-
 		id += next_offset;
 		gpa += byte_offset;
 		len -= byte_offset;
@@ -2216,8 +2202,7 @@ static int vgic_its_restore_cte(struct vgic_its *its, gpa_t gpa, int esz)
 	target_addr = (u32)(val >> KVM_ITS_CTE_RDBASE_SHIFT);
 	coll_id = val & KVM_ITS_CTE_ICID_MASK;
 
-	if (target_addr != COLLECTION_NOT_MAPPED &&
-	    target_addr >= atomic_read(&kvm->online_vcpus))
+	if (target_addr >= atomic_read(&kvm->online_vcpus))
 		return -EINVAL;
 
 	collection = find_collection(its, coll_id);

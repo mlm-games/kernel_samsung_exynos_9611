@@ -188,6 +188,12 @@ MODULE_PARM_DESC(ql2xdbwr,
 		" 0 -- Regular doorbell.\n"
 		" 1 -- CAMRAM doorbell (faster).\n");
 
+int ql2xtargetreset = 1;
+module_param(ql2xtargetreset, int, S_IRUGO);
+MODULE_PARM_DESC(ql2xtargetreset,
+		 "Enable target reset."
+		 "Default is 1 - use hw defaults.");
+
 int ql2xgffidenable;
 module_param(ql2xgffidenable, int, S_IRUGO);
 MODULE_PARM_DESC(ql2xgffidenable,
@@ -261,35 +267,6 @@ module_param(ql2xautodetectsfp, int, 0444);
 MODULE_PARM_DESC(ql2xautodetectsfp,
 		 "Detect SFP range and set appropriate distance.\n"
 		 "1 (Default): Enable\n");
-
-int ql2xenablemsix = 1;
-module_param(ql2xenablemsix, int, 0444);
-MODULE_PARM_DESC(ql2xenablemsix,
-		 "Set to enable MSI or MSI-X interrupt mechanism.\n"
-		 " Default is 1, enable MSI-X interrupt mechanism.\n"
-		 " 0 -- enable traditional pin-based mechanism.\n"
-		 " 1 -- enable MSI-X interrupt mechanism.\n"
-		 " 2 -- enable MSI interrupt mechanism.\n");
-
-int qla2xuseresexchforels;
-module_param(qla2xuseresexchforels, int, 0444);
-MODULE_PARM_DESC(qla2xuseresexchforels,
-		 "Reserve 1/2 of emergency exchanges for ELS.\n"
-		 " 0 (default): disabled");
-
-int ql2xprotmask;
-module_param(ql2xprotmask, int, 0644);
-MODULE_PARM_DESC(ql2xprotmask,
-		 "Override DIF/DIX protection capabilities mask\n"
-		 "Default is 0 which sets protection mask based on "
-		 "capabilities reported by HBA firmware.\n");
-
-int ql2xprotguard;
-module_param(ql2xprotguard, int, 0644);
-MODULE_PARM_DESC(ql2xprotguard, "Override choice of DIX checksum\n"
-		 "  0 -- Let HBA firmware decide\n"
-		 "  1 -- Force T10 CRC\n"
-		 "  2 -- Force IP checksum\n");
 
 /*
  * SCSI host template entry points
@@ -1675,10 +1652,27 @@ int
 qla2x00_loop_reset(scsi_qla_host_t *vha)
 {
 	int ret;
+	struct fc_port *fcport;
 	struct qla_hw_data *ha = vha->hw;
 
-	if (IS_QLAFX00(ha))
-		return QLA_SUCCESS;
+	if (IS_QLAFX00(ha)) {
+		return qlafx00_loop_reset(vha);
+	}
+
+	if (ql2xtargetreset == 1 && ha->flags.enable_target_reset) {
+		list_for_each_entry(fcport, &vha->vp_fcports, list) {
+			if (fcport->port_type != FCT_TARGET)
+				continue;
+
+			ret = ha->isp_ops->target_reset(fcport, 0, 0);
+			if (ret != QLA_SUCCESS) {
+				ql_dbg(ql_dbg_taskm, vha, 0x802c,
+				    "Bus Reset failed: Reset=%d "
+				    "d_id=%x.\n", ret, fcport->d_id.b24);
+			}
+		}
+	}
+
 
 	if (ha->flags.enable_lip_full_login && !IS_CNA_CAPABLE(ha)) {
 		atomic_set(&vha->loop_state, LOOP_DOWN);
@@ -3044,13 +3038,6 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	host->max_id = ha->max_fibre_devices;
 	host->cmd_per_lun = 3;
 	host->unique_id = host->host_no;
-
-	if (ql2xenabledif && ql2xenabledif != 2) {
-		ql_log(ql_log_warn, base_vha, 0x302d,
-		       "Invalid value for ql2xenabledif, resetting it to default (2)\n");
-		ql2xenabledif = 2;
-	}
-
 	if (IS_T10_PI_CAPABLE(ha) && ql2xenabledif)
 		host->max_cmd_len = 32;
 	else
@@ -3191,10 +3178,6 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	    base_vha->mgmt_svr_loop_id, host->sg_tablesize);
 
 	ha->wq = alloc_workqueue("qla2xxx_wq", WQ_MEM_RECLAIM, 0);
-	if (unlikely(!ha->wq)) {
-		ret = -ENOMEM;
-		goto probe_failed;
-	}
 
 	if (ha->mqenable) {
 		bool mq = false;
@@ -3279,16 +3262,15 @@ skip_dpc:
 			base_vha->flags.difdix_supported = 1;
 			ql_dbg(ql_dbg_init, base_vha, 0x00f1,
 			    "Registering for DIF/DIX type 1 and 3 protection.\n");
-			if (ql2xprotmask)
-				scsi_host_set_prot(host, ql2xprotmask);
-			else
-				scsi_host_set_prot(host,
-				    prot | SHOST_DIF_TYPE1_PROTECTION
-				    | SHOST_DIF_TYPE2_PROTECTION
-				    | SHOST_DIF_TYPE3_PROTECTION
-				    | SHOST_DIX_TYPE1_PROTECTION
-				    | SHOST_DIX_TYPE2_PROTECTION
-				    | SHOST_DIX_TYPE3_PROTECTION);
+			if (ql2xenabledif == 1)
+				prot = SHOST_DIX_TYPE0_PROTECTION;
+			scsi_host_set_prot(host,
+			    prot | SHOST_DIF_TYPE1_PROTECTION
+			    | SHOST_DIF_TYPE2_PROTECTION
+			    | SHOST_DIF_TYPE3_PROTECTION
+			    | SHOST_DIX_TYPE1_PROTECTION
+			    | SHOST_DIX_TYPE2_PROTECTION
+			    | SHOST_DIX_TYPE3_PROTECTION);
 
 			guard = SHOST_DIX_GUARD_CRC;
 
@@ -3296,10 +3278,7 @@ skip_dpc:
 			    (ql2xenabledif > 1 || IS_PI_DIFB_DIX0_CAPABLE(ha)))
 				guard |= SHOST_DIX_GUARD_IP;
 
-			if (ql2xprotguard)
-				scsi_host_set_guard(host, ql2xprotguard);
-			else
-				scsi_host_set_guard(host, guard);
+			scsi_host_set_guard(host, guard);
 		} else
 			base_vha->flags.difdix_supported = 0;
 	}
@@ -3457,10 +3436,6 @@ qla2x00_shutdown(struct pci_dev *pdev)
 
 	/* Stop currently executing firmware. */
 	qla2x00_try_to_stop_firmware(vha);
-
-	/* Disable timer */
-	if (vha->timer_active)
-		qla2x00_stop_timer(vha);
 
 	/* Turn adapter off line */
 	vha->flags.online = 0;
@@ -5822,28 +5797,12 @@ qla2x00_do_dpc(void *data)
 		if (test_and_clear_bit
 		    (ISP_ABORT_NEEDED, &base_vha->dpc_flags) &&
 		    !test_bit(UNLOADING, &base_vha->dpc_flags)) {
-			bool do_reset = true;
 
-			switch (ql2x_ini_mode) {
-			case QLA2XXX_INI_MODE_ENABLED:
-				break;
-			case QLA2XXX_INI_MODE_DISABLED:
-				if (!qla_tgt_mode_enabled(base_vha))
-					do_reset = false;
-				break;
-			case QLA2XXX_INI_MODE_DUAL:
-				if (!qla_dual_mode_enabled(base_vha))
-					do_reset = false;
-				break;
-			default:
-				break;
-			}
-
-			if (do_reset && !(test_and_set_bit(ABORT_ISP_ACTIVE,
+			ql_dbg(ql_dbg_dpc, base_vha, 0x4007,
+			    "ISP abort scheduled.\n");
+			if (!(test_and_set_bit(ABORT_ISP_ACTIVE,
 			    &base_vha->dpc_flags))) {
-				base_vha->flags.online = 1;
-				ql_dbg(ql_dbg_dpc, base_vha, 0x4007,
-				    "ISP abort scheduled.\n");
+
 				if (ha->isp_ops->abort_isp(base_vha)) {
 					/* failed. retry later */
 					set_bit(ISP_ABORT_NEEDED,
@@ -5851,9 +5810,10 @@ qla2x00_do_dpc(void *data)
 				}
 				clear_bit(ABORT_ISP_ACTIVE,
 						&base_vha->dpc_flags);
-				ql_dbg(ql_dbg_dpc, base_vha, 0x4008,
-				    "ISP abort end.\n");
 			}
+
+			ql_dbg(ql_dbg_dpc, base_vha, 0x4008,
+			    "ISP abort end.\n");
 		}
 
 		if (test_and_clear_bit(FCPORT_UPDATE_NEEDED,
@@ -5927,12 +5887,9 @@ qla2x00_do_dpc(void *data)
 			}
 		}
 loop_resync_check:
-		if (!qla2x00_reset_active(base_vha) &&
-		    test_and_clear_bit(LOOP_RESYNC_NEEDED,
+		if (test_and_clear_bit(LOOP_RESYNC_NEEDED,
 		    &base_vha->dpc_flags)) {
-			/*
-			 * Allow abort_isp to complete before moving on to scanning.
-			 */
+
 			ql_dbg(ql_dbg_dpc, base_vha, 0x400f,
 			    "Loop resync scheduled.\n");
 
@@ -6159,7 +6116,7 @@ qla2x00_timer(scsi_qla_host_t *vha)
 
 		/* if the loop has been down for 4 minutes, reinit adapter */
 		if (atomic_dec_and_test(&vha->loop_down_timer) != 0) {
-			if (!(vha->device_flags & DFLG_NO_CABLE) && !vha->vp_idx) {
+			if (!(vha->device_flags & DFLG_NO_CABLE)) {
 				ql_log(ql_log_warn, vha, 0x6009,
 				    "Loop down - aborting ISP.\n");
 
@@ -6739,7 +6696,8 @@ qla2x00_module_init(void)
 	/* Initialize target kmem_cache and mem_pools */
 	ret = qlt_init();
 	if (ret < 0) {
-		goto destroy_cache;
+		kmem_cache_destroy(srb_cachep);
+		return ret;
 	} else if (ret > 0) {
 		/*
 		 * If initiator mode is explictly disabled by qlt_init(),
@@ -6760,10 +6718,11 @@ qla2x00_module_init(void)
 	qla2xxx_transport_template =
 	    fc_attach_transport(&qla2xxx_transport_functions);
 	if (!qla2xxx_transport_template) {
+		kmem_cache_destroy(srb_cachep);
 		ql_log(ql_log_fatal, NULL, 0x0002,
 		    "fc_attach_transport failed...Failing load!.\n");
-		ret = -ENODEV;
-		goto qlt_exit;
+		qlt_exit();
+		return -ENODEV;
 	}
 
 	apidev_major = register_chrdev(0, QLA2XXX_APIDEV, &apidev_fops);
@@ -6775,36 +6734,26 @@ qla2x00_module_init(void)
 	qla2xxx_transport_vport_template =
 	    fc_attach_transport(&qla2xxx_transport_vport_functions);
 	if (!qla2xxx_transport_vport_template) {
+		kmem_cache_destroy(srb_cachep);
+		qlt_exit();
+		fc_release_transport(qla2xxx_transport_template);
 		ql_log(ql_log_fatal, NULL, 0x0004,
 		    "fc_attach_transport vport failed...Failing load!.\n");
-		ret = -ENODEV;
-		goto unreg_chrdev;
+		return -ENODEV;
 	}
 	ql_log(ql_log_info, NULL, 0x0005,
 	    "QLogic Fibre Channel HBA Driver: %s.\n",
 	    qla2x00_version_str);
 	ret = pci_register_driver(&qla2xxx_pci_driver);
 	if (ret) {
+		kmem_cache_destroy(srb_cachep);
+		qlt_exit();
+		fc_release_transport(qla2xxx_transport_template);
+		fc_release_transport(qla2xxx_transport_vport_template);
 		ql_log(ql_log_fatal, NULL, 0x0006,
 		    "pci_register_driver failed...ret=%d Failing load!.\n",
 		    ret);
-		goto release_vport_transport;
 	}
-	return ret;
-
-release_vport_transport:
-	fc_release_transport(qla2xxx_transport_vport_template);
-
-unreg_chrdev:
-	if (apidev_major >= 0)
-		unregister_chrdev(apidev_major, QLA2XXX_APIDEV);
-	fc_release_transport(qla2xxx_transport_template);
-
-qlt_exit:
-	qlt_exit();
-
-destroy_cache:
-	kmem_cache_destroy(srb_cachep);
 	return ret;
 }
 

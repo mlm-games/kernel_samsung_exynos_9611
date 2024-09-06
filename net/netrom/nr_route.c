@@ -144,7 +144,7 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 		nr_neigh->digipeat = NULL;
 		nr_neigh->ax25     = NULL;
 		nr_neigh->dev      = dev;
-		nr_neigh->quality  = READ_ONCE(sysctl_netrom_default_path_quality);
+		nr_neigh->quality  = sysctl_netrom_default_path_quality;
 		nr_neigh->locked   = 0;
 		nr_neigh->count    = 0;
 		nr_neigh->number   = nr_neigh_no++;
@@ -199,7 +199,6 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 		/* refcount initialized at 1 */
 		spin_unlock_bh(&nr_node_list_lock);
 
-		nr_neigh_put(nr_neigh);
 		return 0;
 	}
 	nr_node_lock(nr_node);
@@ -752,7 +751,7 @@ void nr_link_failed(ax25_cb *ax25, int reason)
 	nr_neigh->ax25 = NULL;
 	ax25_cb_put(ax25);
 
-	if (++nr_neigh->failed < READ_ONCE(sysctl_netrom_link_fails_count)) {
+	if (++nr_neigh->failed < sysctl_netrom_link_fails_count) {
 		nr_neigh_put(nr_neigh);
 		return;
 	}
@@ -790,7 +789,7 @@ int nr_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 	if (ax25 != NULL) {
 		ret = nr_add_node(nr_src, "", &ax25->dest_addr, ax25->digipeat,
 				  ax25->ax25_dev->dev, 0,
-				  READ_ONCE(sysctl_netrom_obsolescence_count_initialiser));
+				  sysctl_netrom_obsolescence_count_initialiser);
 		if (ret)
 			return ret;
 	}
@@ -804,7 +803,7 @@ int nr_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 		return ret;
 	}
 
-	if (!READ_ONCE(sysctl_netrom_routing_control) && ax25 != NULL)
+	if (!sysctl_netrom_routing_control && ax25 != NULL)
 		return 0;
 
 	/* Its Time-To-Live has expired */

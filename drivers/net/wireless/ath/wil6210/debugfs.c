@@ -834,14 +834,20 @@ static ssize_t wil_write_file_wmi(struct file *file, const char __user *buf,
 	void *cmd;
 	int cmdlen = len - sizeof(struct wmi_cmd_hdr);
 	u16 cmdid;
-	int rc1;
+	int rc, rc1;
 
-	if (cmdlen < 0 || *ppos != 0)
+	if (cmdlen < 0)
 		return -EINVAL;
 
-	wmi = memdup_user(buf, len);
-	if (IS_ERR(wmi))
-		return PTR_ERR(wmi);
+	wmi = kmalloc(len, GFP_KERNEL);
+	if (!wmi)
+		return -ENOMEM;
+
+	rc = simple_write_to_buffer(wmi, len, ppos, buf, len);
+	if (rc < 0) {
+		kfree(wmi);
+		return rc;
+	}
 
 	cmd = (cmdlen > 0) ? &wmi[1] : NULL;
 	cmdid = le16_to_cpu(wmi->command_id);
@@ -851,7 +857,7 @@ static ssize_t wil_write_file_wmi(struct file *file, const char __user *buf,
 
 	wil_info(wil, "0x%04x[%d] -> %d\n", cmdid, cmdlen, rc1);
 
-	return len;
+	return rc;
 }
 
 static const struct file_operations fops_wmi = {
@@ -1087,7 +1093,7 @@ static const struct file_operations fops_ssid = {
 };
 
 /*---------temp------------*/
-static void print_temp(struct seq_file *s, const char *prefix, s32 t)
+static void print_temp(struct seq_file *s, const char *prefix, u32 t)
 {
 	switch (t) {
 	case 0:
@@ -1095,8 +1101,7 @@ static void print_temp(struct seq_file *s, const char *prefix, s32 t)
 		seq_printf(s, "%s N/A\n", prefix);
 	break;
 	default:
-		seq_printf(s, "%s %s%d.%03d\n", prefix, (t < 0 ? "-" : ""),
-			   abs(t / 1000), abs(t % 1000));
+		seq_printf(s, "%s %d.%03d\n", prefix, t / 1000, t % 1000);
 		break;
 	}
 }
@@ -1104,7 +1109,7 @@ static void print_temp(struct seq_file *s, const char *prefix, s32 t)
 static int wil_temp_debugfs_show(struct seq_file *s, void *data)
 {
 	struct wil6210_priv *wil = s->private;
-	s32 t_m, t_r;
+	u32 t_m, t_r;
 	int rc = wmi_get_temperature(wil, &t_m, &t_r);
 
 	if (rc) {

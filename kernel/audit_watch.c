@@ -316,6 +316,8 @@ static void audit_update_watch(struct audit_parent *parent,
 			if (oentry->rule.exe)
 				audit_remove_mark(oentry->rule.exe);
 
+			audit_watch_log_rule_change(r, owatch, "updated_rules");
+
 			call_rcu(&oentry->rcu, audit_free_rule_rcu);
 		}
 
@@ -363,12 +365,12 @@ static int audit_get_nd(struct audit_watch *watch, struct path *parent)
 	struct dentry *d = kern_path_locked(watch->path, parent);
 	if (IS_ERR(d))
 		return PTR_ERR(d);
+	inode_unlock(d_backing_inode(parent->dentry));
 	if (d_is_positive(d)) {
 		/* update watch filter fields */
 		watch->dev = d->d_sb->s_dev;
 		watch->ino = d_backing_inode(d)->i_ino;
 	}
-	inode_unlock(d_backing_inode(parent->dentry));
 	dput(d);
 	return 0;
 }
@@ -557,18 +559,11 @@ int audit_exe_compare(struct task_struct *tsk, struct audit_fsnotify_mark *mark)
 	unsigned long ino;
 	dev_t dev;
 
-	/* only do exe filtering if we are recording @current events/records */
-	if (tsk != current)
-		return 0;
-
-	if (!current->mm)
-		return 0;
-	exe_file = get_mm_exe_file(current->mm);
+	exe_file = get_task_exe_file(tsk);
 	if (!exe_file)
 		return 0;
 	ino = file_inode(exe_file)->i_ino;
 	dev = file_inode(exe_file)->i_sb->s_dev;
 	fput(exe_file);
-
 	return audit_mark_compare(mark, ino, dev);
 }

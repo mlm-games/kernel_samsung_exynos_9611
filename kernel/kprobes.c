@@ -418,8 +418,8 @@ static inline int kprobe_optready(struct kprobe *p)
 	return 0;
 }
 
-/* Return true if the kprobe is disarmed. Note: p must be on hash list */
-bool kprobe_disarmed(struct kprobe *p)
+/* Return true(!0) if the kprobe is disarmed. Note: p must be on hash list */
+static inline int kprobe_disarmed(struct kprobe *p)
 {
 	struct optimized_kprobe *op;
 
@@ -483,7 +483,6 @@ static DECLARE_DELAYED_WORK(optimizing_work, kprobe_optimizer);
  */
 static void do_optimize_kprobes(void)
 {
-	lockdep_assert_held(&text_mutex);
 	/*
 	 * The optimization/unoptimization refers online_cpus via
 	 * stop_machine() and cpu-hotplug modifies online_cpus.
@@ -501,7 +500,9 @@ static void do_optimize_kprobes(void)
 	    list_empty(&optimizing_list))
 		return;
 
+	mutex_lock(&text_mutex);
 	arch_optimize_kprobes(&optimizing_list);
+	mutex_unlock(&text_mutex);
 }
 
 /*
@@ -512,7 +513,6 @@ static void do_unoptimize_kprobes(void)
 {
 	struct optimized_kprobe *op, *tmp;
 
-	lockdep_assert_held(&text_mutex);
 	/* See comment in do_optimize_kprobes() */
 	lockdep_assert_cpus_held();
 
@@ -520,11 +520,10 @@ static void do_unoptimize_kprobes(void)
 	if (list_empty(&unoptimizing_list))
 		return;
 
+	mutex_lock(&text_mutex);
 	arch_unoptimize_kprobes(&unoptimizing_list, &freeing_list);
 	/* Loop free_list for disarming */
 	list_for_each_entry_safe(op, tmp, &freeing_list, list) {
-		/* Switching from detour code to origin */
-		op->kp.flags &= ~KPROBE_FLAG_OPTIMIZED;
 		/* Disarm probes if marked disabled */
 		if (kprobe_disabled(&op->kp))
 			arch_disarm_kprobe(&op->kp);
@@ -538,6 +537,7 @@ static void do_unoptimize_kprobes(void)
 		} else
 			list_del_init(&op->list);
 	}
+	mutex_unlock(&text_mutex);
 }
 
 /* Reclaim all kprobes on the free_list */
@@ -546,14 +546,8 @@ static void do_free_cleaned_kprobes(void)
 	struct optimized_kprobe *op, *tmp;
 
 	list_for_each_entry_safe(op, tmp, &freeing_list, list) {
+		BUG_ON(!kprobe_unused(&op->kp));
 		list_del_init(&op->list);
-		if (WARN_ON_ONCE(!kprobe_unused(&op->kp))) {
-			/*
-			 * This must not happen, but if there is a kprobe
-			 * still in use, keep it on kprobes hash list.
-			 */
-			continue;
-		}
 		free_aggr_kprobe(&op->kp);
 	}
 }
@@ -569,7 +563,6 @@ static void kprobe_optimizer(struct work_struct *work)
 {
 	mutex_lock(&kprobe_mutex);
 	cpus_read_lock();
-	mutex_lock(&text_mutex);
 	/* Lock modules while optimizing kprobes */
 	mutex_lock(&module_mutex);
 
@@ -597,14 +590,12 @@ static void kprobe_optimizer(struct work_struct *work)
 	do_free_cleaned_kprobes();
 
 	mutex_unlock(&module_mutex);
-	mutex_unlock(&text_mutex);
 	cpus_read_unlock();
+	mutex_unlock(&kprobe_mutex);
 
 	/* Step 5: Kick optimizer again if needed */
 	if (!list_empty(&optimizing_list) || !list_empty(&unoptimizing_list))
 		kick_kprobe_optimizer();
-
-	mutex_unlock(&kprobe_mutex);
 }
 
 /* Wait for completing optimization and unoptimization */
@@ -624,18 +615,6 @@ void wait_for_kprobe_optimizer(void)
 	}
 
 	mutex_unlock(&kprobe_mutex);
-}
-
-bool optprobe_queued_unopt(struct optimized_kprobe *op)
-{
-	struct optimized_kprobe *_op;
-
-	list_for_each_entry(_op, &unoptimizing_list, list) {
-		if (op == _op)
-			return true;
-	}
-
-	return false;
 }
 
 /* Optimize kprobe if p is ready to be optimized */
@@ -659,21 +638,17 @@ static void optimize_kprobe(struct kprobe *p)
 		return;
 
 	/* Check if it is already optimized. */
-	if (op->kp.flags & KPROBE_FLAG_OPTIMIZED) {
-		if (optprobe_queued_unopt(op)) {
-			/* This is under unoptimizing. Just dequeue the probe */
-			list_del_init(&op->list);
-		}
+	if (op->kp.flags & KPROBE_FLAG_OPTIMIZED)
 		return;
-	}
 	op->kp.flags |= KPROBE_FLAG_OPTIMIZED;
 
-	/* On unoptimizing/optimizing_list, op must have OPTIMIZED flag */
-	if (WARN_ON_ONCE(!list_empty(&op->list)))
-		return;
-
-	list_add(&op->list, &optimizing_list);
-	kick_kprobe_optimizer();
+	if (!list_empty(&op->list))
+		/* This is under unoptimizing. Just dequeue the probe */
+		list_del_init(&op->list);
+	else {
+		list_add(&op->list, &optimizing_list);
+		kick_kprobe_optimizer();
+	}
 }
 
 /* Short cut to direct unoptimizing */
@@ -681,7 +656,6 @@ static void force_unoptimize_kprobe(struct optimized_kprobe *op)
 {
 	lockdep_assert_cpus_held();
 	arch_unoptimize_kprobe(op);
-	op->kp.flags &= ~KPROBE_FLAG_OPTIMIZED;
 	if (kprobe_disabled(&op->kp))
 		arch_disarm_kprobe(&op->kp);
 }
@@ -695,33 +669,31 @@ static void unoptimize_kprobe(struct kprobe *p, bool force)
 		return; /* This is not an optprobe nor optimized */
 
 	op = container_of(p, struct optimized_kprobe, kp);
-	if (!kprobe_optimized(p))
-		return;
-
-	if (!list_empty(&op->list)) {
-		if (optprobe_queued_unopt(op)) {
-			/* Queued in unoptimizing queue */
-			if (force) {
-				/*
-				 * Forcibly unoptimize the kprobe here, and queue it
-				 * in the freeing list for release afterwards.
-				 */
-				force_unoptimize_kprobe(op);
-				list_move(&op->list, &freeing_list);
-			}
-		} else {
-			/* Dequeue from the optimizing queue */
+	if (!kprobe_optimized(p)) {
+		/* Unoptimized or unoptimizing case */
+		if (force && !list_empty(&op->list)) {
+			/*
+			 * Only if this is unoptimizing kprobe and forced,
+			 * forcibly unoptimize it. (No need to unoptimize
+			 * unoptimized kprobe again :)
+			 */
 			list_del_init(&op->list);
-			op->kp.flags &= ~KPROBE_FLAG_OPTIMIZED;
+			force_unoptimize_kprobe(op);
 		}
 		return;
 	}
 
+	op->kp.flags &= ~KPROBE_FLAG_OPTIMIZED;
+	if (!list_empty(&op->list)) {
+		/* Dequeue from the optimization queue */
+		list_del_init(&op->list);
+		return;
+	}
 	/* Optimized kprobe case */
-	if (force) {
+	if (force)
 		/* Forcibly update the code: this is a special case */
 		force_unoptimize_kprobe(op);
-	} else {
+	else {
 		list_add(&op->list, &unoptimizing_list);
 		kick_kprobe_optimizer();
 	}
@@ -731,6 +703,7 @@ static void unoptimize_kprobe(struct kprobe *p, bool force)
 static int reuse_unused_kprobe(struct kprobe *ap)
 {
 	struct optimized_kprobe *op;
+	int ret;
 
 	BUG_ON(!kprobe_unused(ap));
 	/*
@@ -744,8 +717,9 @@ static int reuse_unused_kprobe(struct kprobe *ap)
 	/* Enable the probe again */
 	ap->flags &= ~KPROBE_FLAG_DISABLED;
 	/* Optimize it again (remove from op->list) */
-	if (!kprobe_optready(ap))
-		return -EINVAL;
+	ret = kprobe_optready(ap);
+	if (ret)
+		return ret;
 
 	optimize_kprobe(ap);
 	return 0;
@@ -1218,26 +1192,6 @@ __releases(hlist_lock)
 }
 NOKPROBE_SYMBOL(kretprobe_table_unlock);
 
-struct kprobe kprobe_busy = {
-	.addr = (void *) get_kprobe,
-};
-
-void kprobe_busy_begin(void)
-{
-	struct kprobe_ctlblk *kcb;
-
-	preempt_disable();
-	__this_cpu_write(current_kprobe, &kprobe_busy);
-	kcb = get_kprobe_ctlblk();
-	kcb->kprobe_status = KPROBE_HIT_ACTIVE;
-}
-
-void kprobe_busy_end(void)
-{
-	__this_cpu_write(current_kprobe, NULL);
-	preempt_enable();
-}
-
 /*
  * This function is called from finish_task_switch when task tk becomes dead,
  * so that we can recycle any function-return probe instances associated
@@ -1255,8 +1209,6 @@ void kprobe_flush_task(struct task_struct *tk)
 		/* Early boot.  kretprobe_table_locks not yet initialized. */
 		return;
 
-	kprobe_busy_begin();
-
 	INIT_HLIST_HEAD(&empty_rp);
 	hash = hash_ptr(tk, KPROBE_HASH_BITS);
 	head = &kretprobe_inst_table[hash];
@@ -1270,8 +1222,6 @@ void kprobe_flush_task(struct task_struct *tk)
 		hlist_del(&ri->hlist);
 		kfree(ri);
 	}
-
-	kprobe_busy_end();
 }
 NOKPROBE_SYMBOL(kprobe_flush_task);
 
@@ -1551,12 +1501,9 @@ static int check_kprobe_address_safe(struct kprobe *p,
 	preempt_disable();
 
 	/* Ensure it is not in reserved area nor out of text */
-	if (!(core_kernel_text((unsigned long) p->addr) ||
-	    is_module_text_address((unsigned long) p->addr)) ||
-	    in_gate_area_no_mm((unsigned long) p->addr) ||
+	if (!kernel_text_address((unsigned long) p->addr) ||
 	    within_kprobe_blacklist((unsigned long) p->addr) ||
-	    jump_label_text_reserved(p->addr, p->addr) ||
-	    find_bug((unsigned long)p->addr)) {
+	    jump_label_text_reserved(p->addr, p->addr)) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -1688,14 +1635,12 @@ static struct kprobe *__disable_kprobe(struct kprobe *p)
 		/* Try to disarm and disable this/parent probe */
 		if (p == orig_p || aggr_kprobe_disabled(orig_p)) {
 			/*
-			 * Don't be lazy here.  Even if 'kprobes_all_disarmed'
-			 * is false, 'orig_p' might not have been armed yet.
-			 * Note arm_all_kprobes() __tries__ to arm all kprobes
-			 * on the best effort basis.
+			 * If kprobes_all_disarmed is set, orig_p
+			 * should have already been disarmed, so
+			 * skip unneed disarming process.
 			 */
-			if (!kprobes_all_disarmed && !kprobe_disabled(orig_p))
+			if (!kprobes_all_disarmed)
 				disarm_kprobe(orig_p, true);
-
 			orig_p->flags |= KPROBE_FLAG_DISABLED;
 		}
 	}
@@ -1993,10 +1938,6 @@ int register_kretprobe(struct kretprobe *rp)
 	if (!kprobe_on_func_entry(rp->kp.addr, rp->kp.symbol_name, rp->kp.offset))
 		return -EINVAL;
 
-	/* If only rp->kp.addr is specified, check reregistering kprobes */
-	if (rp->kp.addr && check_kprobe_rereg(&rp->kp))
-		return -EINVAL;
-
 	if (kretprobe_blacklist_size) {
 		addr = kprobe_addr(&rp->kp);
 		if (IS_ERR(addr))
@@ -2007,9 +1948,6 @@ int register_kretprobe(struct kretprobe *rp)
 				return -EINVAL;
 		}
 	}
-
-	if (rp->data_size > KRETPROBE_MAX_DATA_SIZE)
-		return -E2BIG;
 
 	rp->kp.pre_handler = pre_handler_kretprobe;
 	rp->kp.post_handler = NULL;
@@ -2128,9 +2066,6 @@ static void kill_kprobe(struct kprobe *p)
 {
 	struct kprobe *kp;
 
-	if (WARN_ON_ONCE(kprobe_gone(p)))
-		return;
-
 	p->flags |= KPROBE_FLAG_GONE;
 	if (kprobe_aggrprobe(p)) {
 		/*
@@ -2148,14 +2083,6 @@ static void kill_kprobe(struct kprobe *p)
 	 * the original probed function (which will be freed soon) any more.
 	 */
 	arch_remove_kprobe(p);
-
-	/*
-	 * The module is going away. We should disarm the kprobe which
-	 * is using ftrace, because ftrace framework is still available at
-	 * MODULE_STATE_GOING notification.
-	 */
-	if (kprobe_ftrace(p) && !kprobe_disabled(p) && !kprobes_all_disarmed)
-		disarm_kprobe_ftrace(p);
 }
 
 /* Disable one kprobe */
@@ -2274,10 +2201,7 @@ static int kprobes_module_callback(struct notifier_block *nb,
 	mutex_lock(&kprobe_mutex);
 	for (i = 0; i < KPROBE_TABLE_SIZE; i++) {
 		head = &kprobe_table[i];
-		hlist_for_each_entry_rcu(p, head, hlist) {
-			if (kprobe_gone(p))
-				continue;
-
+		hlist_for_each_entry_rcu(p, head, hlist)
 			if (within_module_init((unsigned long)p->addr, mod) ||
 			    (checkcore &&
 			     within_module_core((unsigned long)p->addr, mod))) {
@@ -2294,7 +2218,6 @@ static int kprobes_module_callback(struct notifier_block *nb,
 				 */
 				kill_kprobe(p);
 			}
-		}
 	}
 	mutex_unlock(&kprobe_mutex);
 	return NOTIFY_DONE;

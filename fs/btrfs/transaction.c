@@ -717,13 +717,8 @@ btrfs_attach_transaction_barrier(struct btrfs_root *root)
 
 	trans = start_transaction(root, 0, TRANS_ATTACH,
 				  BTRFS_RESERVE_NO_FLUSH, true);
-	if (trans == ERR_PTR(-ENOENT)) {
-		int ret;
-
-		ret = btrfs_wait_for_commit(root->fs_info, 0);
-		if (ret)
-			return ERR_PTR(ret);
-	}
+	if (IS_ERR(trans) && PTR_ERR(trans) == -ENOENT)
+		btrfs_wait_for_commit(root->fs_info, 0);
 
 	return trans;
 }
@@ -1324,10 +1319,8 @@ int btrfs_defrag_root(struct btrfs_root *root)
 
 	while (1) {
 		trans = btrfs_start_transaction(root, 0);
-		if (IS_ERR(trans)) {
-			ret = PTR_ERR(trans);
-			break;
-		}
+		if (IS_ERR(trans))
+			return PTR_ERR(trans);
 
 		ret = btrfs_defrag_leaves(trans, root);
 
@@ -1955,14 +1948,6 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	struct btrfs_transaction *prev_trans = NULL;
 	int ret;
 
-	/*
-	 * Some places just start a transaction to commit it.  We need to make
-	 * sure that if this commit fails that the abort code actually marks the
-	 * transaction as failed, so set trans->dirty to make the abort code do
-	 * the right thing.
-	 */
-	trans->dirty = true;
-
 	/* Stop the commit early if ->aborted is set */
 	if (unlikely(READ_ONCE(cur_trans->aborted))) {
 		ret = cur_trans->aborted;
@@ -2067,16 +2052,6 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 		}
 	} else {
 		spin_unlock(&fs_info->trans_lock);
-		/*
-		 * The previous transaction was aborted and was already removed
-		 * from the list of transactions at fs_info->trans_list. So we
-		 * abort to prevent writing a new superblock that reflects a
-		 * corrupt state (pointing to trees with unwritten nodes/leafs).
-		 */
-		if (test_bit(BTRFS_FS_STATE_TRANS_ABORTED, &fs_info->fs_state)) {
-			ret = -EROFS;
-			goto cleanup_transaction;
-		}
 	}
 
 	extwriter_counter_dec(cur_trans, trans->type);
