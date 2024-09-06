@@ -41,7 +41,7 @@ jobs:
           
       - name: Run build
         run: |
-          git submodule update --init --recursive
+          git submodule update --init --remote
           python build_kernel.py --aosp --target=${{matrix.device}}
 
       - name: Print Logs
