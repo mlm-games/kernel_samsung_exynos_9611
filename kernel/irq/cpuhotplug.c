@@ -120,6 +120,8 @@ static bool migrate_one_irq(struct irq_desc *desc)
 		}
 		affinity = cpu_online_mask;
 		brokeaff = true;
+	} else if (unlikely(d->common->state_use_accessors & IRQD_GIC_MULTI_TARGET)) {
+		return false;
 	}
 	/*
 	 * Do not set the force argument of irq_do_set_affinity() as this
@@ -129,8 +131,10 @@ static bool migrate_one_irq(struct irq_desc *desc)
 	 */
 	err = irq_do_set_affinity(d, affinity, false);
 	if (err) {
+#ifdef CONFIG_DEBUG_KERNEL
 		pr_warn_ratelimited("IRQ%u: set affinity failed(%d).\n",
 				    d->irq, err);
+#endif
 		brokeaff = false;
 	}
 
@@ -162,11 +166,12 @@ void irq_migrate_all_off_this_cpu(void)
 		raw_spin_lock(&desc->lock);
 		affinity_broken = migrate_one_irq(desc);
 		raw_spin_unlock(&desc->lock);
-
+#ifdef CONFIG_DEBUG_KERNEL
 		if (affinity_broken) {
 			pr_warn_ratelimited("IRQ %u: no longer affine to CPU%u\n",
 					    irq, smp_processor_id());
 		}
+#endif
 	}
 }
 

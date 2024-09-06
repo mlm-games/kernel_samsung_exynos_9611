@@ -269,6 +269,14 @@ struct ftrace_likely_data {
 # define __nostackprotector
 #endif
 
+#ifndef __norecordmcount
+#define __norecordmcount
+#endif
+
+#ifndef __nocfi
+#define __nocfi
+#endif
+
 /*
  * Assume alignment of return value.
  */
@@ -276,6 +284,9 @@ struct ftrace_likely_data {
 #define __assume_aligned(a, ...)
 #endif
 
+#ifndef __noreorder
+#define __noreorder
+#endif
 
 /* Are two types/vars the same type (ignoring qualifiers)? */
 #ifndef __same_type

@@ -185,8 +185,9 @@ static int adf_dev_aer_schedule_reset(struct adf_accel_dev *accel_dev,
 				"Reset device timeout expired\n");
 			cancel_work_sync(&reset_data->reset_work);
 			ret = -EFAULT;
+		} else {
+			kfree(reset_data);
 		}
-		kfree(reset_data);
 		return ret;
 	}
 	return 0;

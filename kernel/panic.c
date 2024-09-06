@@ -27,7 +27,13 @@
 #include <linux/nmi.h>
 #include <linux/console.h>
 #include <linux/bug.h>
+#include <linux/syscalls.h>
 #include <linux/ratelimit.h>
+#include <linux/debug-snapshot.h>
+
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+#include <linux/sec_debug.h>
+#endif
 #include <linux/sysfs.h>
 
 #define PANIC_TIMER_STEP 100
@@ -163,6 +169,25 @@ void nmi_panic(struct pt_regs *regs, const char *msg)
 }
 EXPORT_SYMBOL(nmi_panic);
 
+#define FS_SYNC_TIMEOUT_MS 2000
+static struct work_struct fs_sync_work;
+static DECLARE_COMPLETION(sync_compl);
+static void fs_sync_work_func(struct work_struct *work)
+{
+	pr_emerg("sys_sync:syncing fs\n");
+	sys_sync();
+	complete(&sync_compl);
+}
+
+void exec_fs_sync_work(void)
+{
+	INIT_WORK(&fs_sync_work, fs_sync_work_func);
+	reinit_completion(&sync_compl);
+	schedule_work(&fs_sync_work);
+	if (wait_for_completion_timeout(&sync_compl, msecs_to_jiffies(FS_SYNC_TIMEOUT_MS)) == 0)
+		pr_emerg("sys_sync:wait complete timeout\n");
+}
+
 void check_panic_on_warn(const char *origin)
 {
 	unsigned int limit;
@@ -192,6 +217,23 @@ void panic(const char *fmt, ...)
 	int state = 0;
 	int old_cpu, this_cpu;
 	bool _crash_kexec_post_notifiers = crash_kexec_post_notifiers;
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	struct pt_regs regs;
+#endif
+
+	exec_fs_sync_work();
+
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	regs.regs[30] = _RET_IP_;
+	regs.pc = regs.regs[30] - sizeof(unsigned int);
+#endif
+
+	/*
+	* dbg_snapshot_early_panic is for supporting wapper functions
+	* to users need to run SoC specific function in NOT interrupt
+	* context
+	*/
+	dbg_snapshot_early_panic();
 
 	if (panic_on_warn) {
 		/*
@@ -230,15 +272,29 @@ void panic(const char *fmt, ...)
 	this_cpu = raw_smp_processor_id();
 	old_cpu  = atomic_cmpxchg(&panic_cpu, PANIC_CPU_INVALID, this_cpu);
 
-	if (old_cpu != PANIC_CPU_INVALID && old_cpu != this_cpu)
+	if (old_cpu != PANIC_CPU_INVALID) {
+		dbg_snapshot_hook_hardlockup_exit();
 		panic_smp_self_stop();
+	}
 
 	console_verbose();
 	bust_spinlocks(1);
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
-	pr_emerg("Kernel panic - not syncing: %s\n", buf);
+
+#ifdef CONFIG_SEC_DEBUG_AUTO_COMMENT
+	if (buf[strlen(buf) - 1] == '\n')
+		buf[strlen(buf) - 1] = '\0';
+#endif
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	if (strncmp(buf, "Fatal exception", 15))
+		sec_debug_set_extra_info_fault(PANIC_FAULT, (unsigned long)regs.pc, &regs);
+#endif
+	pr_auto(ASL5, "Kernel panic - not syncing: %s\n", buf);
+
+	dbg_snapshot_prepare_panic();
+	dbg_snapshot_dump_panic(buf, (size_t)strnlen(buf, sizeof(buf)));
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 	/*
 	 * Avoid nested stack-dumping if a panic occurs during oops processing
@@ -246,6 +302,7 @@ void panic(const char *fmt, ...)
 	if (!test_taint(TAINT_DIE) && oops_in_progress <= 1)
 		dump_stack();
 #endif
+	//sysrq_sched_debug_show();
 
 	/*
 	 * If we have crashed and we have a crash kernel loaded let it handle
@@ -283,6 +340,8 @@ void panic(const char *fmt, ...)
 	/* Call flush even twice. It tries harder with a single online CPU */
 	printk_safe_flush_on_panic();
 	kmsg_dump(KMSG_DUMP_PANIC);
+
+	dbg_snapshot_post_panic();
 
 	/*
 	 * If you doubt kdump always works fine in any situation,
@@ -604,10 +663,7 @@ void __warn(const char *file, int line, void *caller, unsigned taint,
 
 	print_modules();
 
-	if (regs)
-		show_regs(regs);
-	else
-		dump_stack();
+	dump_stack();
 
 	print_oops_end_marker();
 
@@ -655,7 +711,7 @@ EXPORT_SYMBOL(warn_slowpath_null);
  */
 __visible void __stack_chk_fail(void)
 {
-	panic("stack-protector: Kernel stack is corrupted in: %p\n",
+	panic("stack-protector: Kernel stack is corrupted in: %pB\n",
 		__builtin_return_address(0));
 }
 EXPORT_SYMBOL(__stack_chk_fail);

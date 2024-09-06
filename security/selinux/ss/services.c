@@ -71,7 +71,7 @@
 #include "audit.h"
 
 /* Policy capability names */
-char *selinux_policycap_names[__POLICYDB_CAPABILITY_MAX] = {
+const char *selinux_policycap_names[__POLICYDB_CAPABILITY_MAX] = {
 	"network_peer_controls",
 	"open_perms",
 	"extended_socket_class",
@@ -80,6 +80,8 @@ char *selinux_policycap_names[__POLICYDB_CAPABILITY_MAX] = {
 	"nnp_nosuid_transition"
 };
 
+int selinux_android_netlink_route;
+int selinux_android_netlink_getneigh;
 int selinux_policycap_netpeer;
 int selinux_policycap_openperm;
 int selinux_policycap_extsockclass;
@@ -2026,6 +2028,10 @@ static void security_load_policycaps(void)
 			pr_info("SELinux:  unknown policy capability %u\n",
 				i);
 	}
+
+	selinux_android_netlink_route = policydb.android_netlink_route;
+	selinux_android_netlink_getneigh = policydb.android_netlink_getneigh;
+	selinux_nlmsg_init();
 }
 
 static int security_preserve_bools(struct policydb *p);
@@ -2061,10 +2067,12 @@ int security_load_policy(void *data, size_t len)
 	if (!ss_initialized) {
 		avtab_cache_init();
 		ebitmap_cache_init();
+		hashtab_cache_init();
 		rc = policydb_read(&policydb, fp);
 		if (rc) {
 			avtab_cache_destroy();
 			ebitmap_cache_destroy();
+			hashtab_cache_destroy();
 			goto out;
 		}
 
@@ -2076,6 +2084,7 @@ int security_load_policy(void *data, size_t len)
 			policydb_destroy(&policydb);
 			avtab_cache_destroy();
 			ebitmap_cache_destroy();
+			hashtab_cache_destroy();
 			goto out;
 		}
 
@@ -2084,6 +2093,7 @@ int security_load_policy(void *data, size_t len)
 			policydb_destroy(&policydb);
 			avtab_cache_destroy();
 			ebitmap_cache_destroy();
+			hashtab_cache_destroy();
 			goto out;
 		}
 
@@ -3367,6 +3377,7 @@ out:
 	return match;
 }
 
+#ifdef CONFIG_AUDIT
 static int (*aurule_callback)(void) = audit_update_lsm_rules;
 
 static int aurule_avc_callback(u32 event)
@@ -3389,6 +3400,7 @@ static int __init aurule_init(void)
 	return err;
 }
 __initcall(aurule_init);
+#endif
 
 #ifdef CONFIG_NETLABEL
 /**

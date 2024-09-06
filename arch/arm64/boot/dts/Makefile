@@ -1,34 +1,38 @@
 # SPDX-License-Identifier: GPL-2.0
-dts-dirs += actions
-dts-dirs += al
-dts-dirs += allwinner
-dts-dirs += altera
-dts-dirs += amd
-dts-dirs += amlogic
-dts-dirs += apm
-dts-dirs += arm
-dts-dirs += broadcom
-dts-dirs += cavium
-dts-dirs += exynos
-dts-dirs += freescale
-dts-dirs += hisilicon
-dts-dirs += marvell
-dts-dirs += mediatek
-dts-dirs += nvidia
-dts-dirs += qcom
-dts-dirs += realtek
-dts-dirs += renesas
-dts-dirs += rockchip
-dts-dirs += socionext
-dts-dirs += sprd
-dts-dirs += xilinx
-dts-dirs += lg
-dts-dirs += zte
+dtb-y += exynos/exynos9610.dtb
+dtb-y += exynos/exynos9611.dtb
 
-subdir-y	:= $(dts-dirs)
+dtbo-y += samsung/exynos9611-a51_eur_open_03.dtbo
+dtbo-y += samsung/exynos9611-a51_eur_open_00.dtbo
+dtbo-y += samsung/exynos9611-a51_eur_open_01.dtbo
+dtbo-y += samsung/exynos9611-a51_eur_open_07.dtbo
 
-dtstree		:= $(srctree)/$(src)
+dtbo-y += samsung/exynos9611-m21_swa_open_06.dtbo
+dtbo-y += samsung/exynos9611-m21_swa_open_00.dtbo
 
-dtb-$(CONFIG_OF_ALL_DTBS) := $(patsubst $(dtstree)/%.dts,%.dtb, $(foreach d,$(dts-dirs), $(wildcard $(dtstree)/$(d)/*.dts)))
+dtbo-y += samsung/exynos9611-m31_eur_open_00.dtbo
+dtbo-y += samsung/exynos9611-m31_eur_open_01.dtbo
 
-always		:= $(dtb-y)
+dtbo-y += samsung/exynos9611-m31s_eur_open_00.dtbo
+
+dtbo-y += samsung/exynos9611-f41_swa_open_00.dtbo
+
+dtbo-y += samsung/exynos9611-gta4xl_eur_open_03.dtbo
+dtbo-y += samsung/exynos9611-gta4xl_eur_open_01.dtbo
+dtbo-y += samsung/exynos9611-gta4xl_eur_open_04.dtbo
+dtbo-y += samsung/exynos9611-gta4xl_eur_open_05.dtbo
+dtbo-y += samsung/exynos9611-gta4xl_eur_open_09.dtbo
+dtbo-y += samsung/exynos9611-gta4xl_eur_open_08.dtbo
+
+dtbo-y += samsung/exynos9611-m30s_swa_open_02.dtbo
+dtbo-y += samsung/exynos9611-m30s_swa_open_00.dtbo
+dtbo-y += samsung/exynos9611-m30s_swa_open_03.dtbo
+dtbo-y += samsung/exynos9611-m30s_swa_open_04.dtbo
+
+targets += dtbs
+DTB_LIST  := $(dtb-y) $(dtbo-y)
+always    := $(DTB_LIST)
+
+dtbs: $(addprefix $(obj)/, $(DTB_LIST))
+
+clean-files := *.dtb*

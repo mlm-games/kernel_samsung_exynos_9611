@@ -1451,6 +1451,9 @@ static int ax88179_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		if (pkt_len_plus_padd > skb->len)
 			return 0;
 
+		if (pkt_len > skb->len)
+			return 0;
+
 		/* Check CRC or runt packet */
 		if ((*pkt_hdr & (AX_RXHDR_CRC_ERR | AX_RXHDR_DROP_ERR)) ||
 		    pkt_len < 2 + ETH_HLEN) {

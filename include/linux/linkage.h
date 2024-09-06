@@ -23,10 +23,8 @@
 #endif
 
 #ifndef cond_syscall
-#define cond_syscall(x)	asm(				\
-	".weak " VMLINUX_SYMBOL_STR(x) "\n\t"		\
-	".set  " VMLINUX_SYMBOL_STR(x) ","		\
-		 VMLINUX_SYMBOL_STR(sys_ni_syscall))
+#define cond_syscall(x) \
+	long __attribute__((weak, alias("sys_ni_syscall"))) x(void);
 #endif
 
 #ifndef SYSCALL_ALIAS
@@ -38,6 +36,9 @@
 
 #define __page_aligned_data	__section(.data..page_aligned) __aligned(PAGE_SIZE)
 #define __page_aligned_bss	__section(.bss..page_aligned) __aligned(PAGE_SIZE)
+
+#define __page_aligned_rkp_bss		__page_aligned_bss
+#define __rkp_ro
 
 /*
  * For assembly routines.

@@ -23,6 +23,7 @@
 #include <asm/pgtable-hwdef.h>
 #include <asm/pgtable-prot.h>
 
+
 /*
  * VMALLOC range.
  *
@@ -208,7 +209,6 @@ static inline pmd_t pmd_mkcont(pmd_t pmd)
 static inline void set_pte(pte_t *ptep, pte_t pte)
 {
 	*ptep = pte;
-
 	/*
 	 * Only if the new pte is valid and kernel, otherwise TLB maintenance
 	 * or update_mmu_cache() have the necessary barriers.

@@ -92,6 +92,8 @@ again:
 			sk = s->sk;
 			if (!sk) {
 				spin_unlock_bh(&ax25_list_lock);
+				s->ax25_dev = NULL;
+				ax25_disconnect(s, ENETUNREACH);
 				ax25_disconnect(s, ENETUNREACH);
 				s->ax25_dev = NULL;
 				spin_lock_bh(&ax25_list_lock);
@@ -100,6 +102,8 @@ again:
 			sock_hold(sk);
 			spin_unlock_bh(&ax25_list_lock);
 			lock_sock(sk);
+			s->ax25_dev = NULL;
+			release_sock(sk);
 			ax25_disconnect(s, ENETUNREACH);
 			s->ax25_dev = NULL;
 			if (sk->sk_socket) {

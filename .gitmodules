@@ -1,0 +1,8 @@
+[submodule "AnyKernel3"]
+	path = AnyKernel3
+	url = https://github.com/mlm-games/AnyKernel3
+	branch = m31s
+[submodule "KernelSU"]
+	path = KernelSU
+	url = https://github.com/tiann/KernelSU
+	tag = v0.9.5

@@ -1,0 +1,60 @@
+name: Test build kernel
+
+on:
+  push:
+    branches:
+      Grass-Unified
+  pull_request:
+    branches:
+      Grass-Unified
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - device: a51
+          - device: m30s
+          - device: m21
+          - device: m31
+          - device: m31s
+          - device: f41
+    name: "🚧 Build for ${{matrix.device}}"
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: apt update
+        run: |
+          sudo apt -y update
+          sudo apt -y install bison flex libssl-dev python3 python-is-python3
+          
+      - name: Download clang
+        run: |
+          wget https://github.com/XSans0/WeebX-Clang/releases/download/WeebX-Clang-19.1.0-rc4-release/WeebX-Clang-19.1.0-rc4.tar.gz -O "weebx-clang.tar.gz"
+          rm -rf toolchain && mkdir toolchain && tar -xvf weebx-clang.tar.gz -C toolchain && rm -rf weebx-clang.tar.gz
+          
+      - name: Run build
+        run: |
+          git submodule update --remote --init
+          cd KernelSU && git checkout v0.9.5 && cd ..
+          python build_kernel.py --aosp --target=${{matrix.device}}
+
+      - name: Print Logs
+        if: failure()
+        run: |
+          find . -type f -name '*err.log' -exec cat {} \;
+
+
+        
+      # - name: Upload kernel (takes space and sometimes doesn't remove them on deleting artifacts)
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: GrassKernel_${{matrix.device}}.zip
+      #     path: scripts/packaging/Grass*
+

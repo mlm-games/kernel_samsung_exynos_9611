@@ -9,7 +9,7 @@
 #include <linux/export.h>
 #include <linux/nospec.h>
 
-unsigned int __read_mostly sysctl_sched_autogroup_enabled = 1;
+unsigned int __read_mostly sysctl_sched_autogroup_enabled = 0;
 static struct autogroup autogroup_default;
 static atomic_t autogroup_seq_nr;
 
@@ -263,7 +263,6 @@ out:
 }
 #endif /* CONFIG_PROC_FS */
 
-#ifdef CONFIG_SCHED_DEBUG
 int autogroup_path(struct task_group *tg, char *buf, int buflen)
 {
 	if (!task_group_is_autogroup(tg))
@@ -271,4 +270,3 @@ int autogroup_path(struct task_group *tg, char *buf, int buflen)
 
 	return snprintf(buf, buflen, "%s-%ld", "/autogroup", tg->autogroup->id);
 }
-#endif /* CONFIG_SCHED_DEBUG */

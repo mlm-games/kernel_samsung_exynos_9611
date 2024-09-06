@@ -43,9 +43,20 @@ scm_version()
 		short=true
 	fi
 
+	if test "$CONFIG_KSU" = "y"; then
+		printf "USK"
+	fi
+
 	# Check for git and a git repo.
 	if test -z "$(git rev-parse --show-cdup 2>/dev/null)" &&
 	   head=$(git rev-parse --verify HEAD 2>/dev/null); then
+
+		# Get branch name, get commit sha, leave.
+		if test "$CONFIG_LOCALVERSION_BRANCH_SHA" = "y"; then
+			last_commit=$(git rev-parse --verify --short=10 HEAD)
+			printf '%s' "@$last_commit"
+			return
+		fi
 
 		# If we are at a tagged commit (like "v2.6.30-rc6"), we ignore
 		# it, because this version is defined in the top level Makefile.
@@ -74,8 +85,7 @@ scm_version()
 			# If we don't have a tag at all we print -g{commitish},
 			# again using exactly 12 hex chars.
 			else
-				head="$(echo $head | cut -c1-12)"
-				printf '%s%s' -g $head
+				printf '%s%s'
 			fi
 		fi
 
@@ -94,7 +104,7 @@ scm_version()
 			git --no-optional-locks status -uno --porcelain 2>/dev/null ||
 			git diff-index --name-only HEAD
 		} | grep -qvE '^(.. )?scripts/package'; then
-			printf '%s' -dirty
+			printf '%s'
 		fi
 
 		# All done with git
@@ -187,7 +197,6 @@ else
 	# LOCALVERSION= is not specified
 	if test "${LOCALVERSION+set}" != "set"; then
 		scm=$(scm_version --short)
-		res="$res${scm:++}"
 	fi
 fi
 
