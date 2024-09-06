@@ -49,7 +49,7 @@ jobs:
         with:
           files: |
             *ernel*.zip
-          name: Grassy Kernel ${{ matrix.variant }} for ${{ matrix.device }} // ${{ inputs.tag_name }}
+          name: Grassy Kernel // ${{ inputs.tag_name }}
           tag_name: ${{ inputs.tag_name }}
           body: |
             Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing hence not recommended)
