@@ -14,10 +14,12 @@ on:
         description: 'Upload releases'
         required: true
         default: 'true'
+        type: boolean
       mark_prerelease:
         description: 'Mark as prerelease'
         required: true
         default: 'false'
+        type: boolean
 
 jobs:
   build:
