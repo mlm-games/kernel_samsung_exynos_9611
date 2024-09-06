@@ -10,6 +10,14 @@ on:
         description: 'Tag name'
         required: true
         default: 'v348-r1'
+      upload_releases:
+        description: 'Upload releases'
+        required: true
+        default: 'true'
+      mark_prerelease:
+        description: 'Mark as prerelease'
+        required: true
+        default: 'false'
 
 jobs:
   build:
@@ -41,11 +49,12 @@ jobs:
       - name: Run build
         run: |
           git submodule update --remote --init
+          cd KernelSU && git checkout v0.9.5 && cd ..
           python build_kernel.py --${{ matrix.variant }} --target=${{ matrix.device }}
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
-        if: success()
+        if: inputs.upload_releases == 'true'
         with:
           files: |
             *ernel*.zip
@@ -57,3 +66,4 @@ jobs:
             All are KSU zips.
             
             AOSP and OneUI variants are provided for each device.
+          prerelease: ${{ inputs.mark_prerelease }}
