@@ -42,7 +42,7 @@ jobs:
       - name: Run build
         run: |
           git submodule update --remote --init
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
+          cd KernelSU && git checkout v0.9.5 && cd ..
           python build_kernel.py --aosp --target=${{matrix.device}}
 
       - name: Print Logs
