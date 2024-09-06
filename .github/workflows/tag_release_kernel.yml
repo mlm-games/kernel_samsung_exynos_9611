@@ -49,8 +49,8 @@ jobs:
         with:
           files: |
             *ernel*.zip
-          name: Grassy Kernel ${{ matrix.variant }} for ${{ matrix.device }} // ${{ github.ref_name }}
-          tag_name: ${{ github.ref }}
+          name: Grassy Kernel ${{ matrix.variant }} for ${{ matrix.device }} // ${{ inputs.tag_name_name }}
+          tag_name: ${{ inputs.tag_name }}
           body: |
             Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing hence not recommended)
             Open an issue with the rom and device used when it doesn't boot and you're sure it's due to the kernel.
