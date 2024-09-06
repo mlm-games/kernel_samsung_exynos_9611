@@ -1,10 +1,15 @@
 name: Build and Release Kernel
 
 on:
-  push:
-    tags:
-      - 'v*' # triggers on any tag starting with 'v'
+  # push:
+  #   tags:
+  #     - 'v*' # triggers on any tag starting with 'v'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name'
+        required: true
+        default: 'v348-r1'
 
 jobs:
   build:
@@ -44,7 +49,7 @@ jobs:
         with:
           files: |
             *ernel*.zip
-          name: Grass Kernel ${{ matrix.variant }} for ${{ matrix.device }} // ${{ github.ref_name }}
+          name: Grassy Kernel ${{ matrix.variant }} for ${{ matrix.device }} // ${{ github.ref_name }}
           tag_name: ${{ github.ref }}
           body: |
             Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing hence not recommended)
