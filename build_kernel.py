@@ -162,8 +162,7 @@ def main():
         'tools/ak3-core.sh',
         'tools/busybox',
         'tools/magiskboot',
-        'anykernel.sh',
-        'version'])
+        'anykernel.sh'])
     newZipName = os.path.join(os.getcwd(), '..', zipname)
     try:
         os.remove(newZipName)
