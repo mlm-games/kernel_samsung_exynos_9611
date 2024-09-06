@@ -44,6 +44,13 @@ jobs:
           git submodule update --remote --init
           python build_kernel.py --aosp --target=${{matrix.device}}
 
+      - name: Print Logs
+        if: failure()
+        run: |
+          find . -type f -name '*err.log' -exec cat {} \;
+
+
+        
       # - name: Upload kernel (takes space and sometimes doesn't remove them on deleting artifacts)
       #   uses: actions/upload-artifact@v4
       #   with:
