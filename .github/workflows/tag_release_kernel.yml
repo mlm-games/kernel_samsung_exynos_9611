@@ -40,7 +40,7 @@ jobs:
           
       - name: Run build
         run: |
-          git submodule update --init --remote
+          git submodule init
           python build_kernel.py --${{ matrix.variant }} --target=${{ matrix.device }}
 
       - name: Upload to Release
