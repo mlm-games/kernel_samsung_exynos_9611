@@ -98,8 +98,6 @@ def parse_arguments():
     return args
 
 def setup_environment():
-    if not check_file("AnyKernel3/version"):
-        execute_command(['git', 'submodule', 'update', '--init'])
     if not check_file("toolchain"):
         raise FileNotFoundError(f"Please make toolchain available at {os.getcwd()}")
     

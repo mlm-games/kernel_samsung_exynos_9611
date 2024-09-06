@@ -148,10 +148,9 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
 }
 EXPORT_SYMBOL(vfs_statx_fd);
 
+
 #ifdef CONFIG_KSU
-extern bool ksu_vfs_read_hook __read_mostly;
-extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
-			size_t *count_ptr, loff_t **pos);
+extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
 #endif
 
 /**
