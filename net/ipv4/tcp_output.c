@@ -3135,6 +3135,7 @@ void tcp_send_fin(struct sock *sk)
 	 * as TCP stack thinks it has already been transmitted.
 	 */
 	if (tskb && (tcp_send_head(sk) || tcp_under_memory_pressure(sk))) {
+coalesce:
 		TCP_SKB_CB(tskb)->tcp_flags |= TCPHDR_FIN;
 		TCP_SKB_CB(tskb)->end_seq++;
 		tp->write_seq++;
