@@ -39,7 +39,7 @@ $ git clone https://github.com/mlm-games/kernel_samsung_exynos_9611
 $ cd kernel_samsung_exynos_9611
 
 # Install toolchain
-# You could try any clang/LLVM based toolchain, however I used WeebX clang 19-rc4
+# You could try any clang/LLVM based toolchain, however I used WeebX clang 19-rc4 (neutron-clang has also been used previously)
 # See the intructions: https://github.com/XSans0/WeebX-Clang
 # If you are using Arch or distro with latest glibc, You may want to use antman instead.
 $ bash <(curl https://gist.githubusercontent.com/roynatech2544/0feeeb35a6d1782b186990ff2a0b3657/raw/b170134a94dac3594df506716bc7b802add2724b/setup.sh)
@@ -57,6 +57,8 @@ After a successful build, you can see the scripts/packaging/Grass*.zip archive.
 This is your kernel. Just flash it via TWRP or adb sideload
 
 ## Other notes
+
+Stock M31s kernel with KSU for stock OneUI rom: https://gitlab.com/android-custom-stuff/android-kernel-samsung-m31s_sm-m317f
 
 Check out MrImmortal09's [kernel](https://github.com/MrImmortal09/android_kernel_samsung_universal9611) source for WIP? kali nethunter kernel for Exynos 9611
 
