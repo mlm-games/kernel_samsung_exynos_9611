@@ -134,3 +134,6 @@ scripts/fmp/__pycache__/
 out/
 toolchain
 toolchain/
+
+# Out Build Script
+*.zip
