@@ -60,7 +60,7 @@ This is your kernel. Just flash it via TWRP or adb sideload
 
 M31s kernel with KSU for stock OneUI rom: https://gitlab.com/android-custom-stuff/android-kernel-samsung-m31s_sm-m317f
 
-Check out MrImmortal09's [kernel](https://github.com/MrImmortal09/android_kernel_samsung_universal9611)kernel for kali nethunter kernel for Exynos 9611
+Check out MrImmortal09's [kernel](https://github.com/MrImmortal09/android_kernel_samsung_universal9611) for kali nethunter kernel for Exynos 9611
 
 ## Credits
 
