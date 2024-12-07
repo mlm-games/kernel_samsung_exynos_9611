@@ -1825,13 +1825,6 @@ continue_unlock:
 				flush_inline_data(sbi, ino_of_node(page));
 				goto lock_node;
 			}
-
-			/* flush dirty inode */
-			if (IS_INODE(page) && may_dirty) {
-				may_dirty = false;
-				if (flush_dirty_inode(page))
-					goto lock_node;
-			}
 write_node:
 			f2fs_wait_on_page_writeback(page, NODE, true, true);
 			
