@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         device: [a51,f41,m31s,m31,m21,gta4xl,gta4xlwifi]
-        variant: [aosp, oneui]
+        variant: ['', --oneui]
         ksu: ['', no-ksu]
     name: "Build ${{ matrix.variant }} for ${{ matrix.device }}"
     steps:
@@ -54,12 +54,10 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/mlm-games/KernelSU-Non-GKI/main/kernel/setup-subm.sh" | bash -s 
           python3 KernelSU/scripts/integrate-no-kprobe.py --no-defconfig-flag
-          git submodule update --remote --init
-          cd KernelSU && git checkout v0.9.5 && cd ..
       
       - name: Run build
         run: |
-          python build_kernel.py --${{ matrix.variant }} --target=${{ matrix.device }} --${{ matrix.ksu }}
+          python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} --${{ matrix.ksu }}
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
