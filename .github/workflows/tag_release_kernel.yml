@@ -59,6 +59,11 @@ jobs:
         run: |
           python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} ${{ matrix.ksu }}
 
+      - name: Print Logs
+        if: failure()
+        run: |
+          find . -type f -name '*err.log' -exec cat {} \;
+          
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         if: inputs.upload_releases == true
