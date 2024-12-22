@@ -48,6 +48,7 @@ jobs:
         if: failure()
         run: |
           find . -type f -name '*err.log' -exec cat {} \;
+          find . -type f -name 'open.c' -exec cat {} \;
 
 
         
