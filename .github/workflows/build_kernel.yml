@@ -43,7 +43,7 @@ jobs:
         run: |
           git submodule update --remote --init
           cd KernelSU && git checkout v0.9.5 && cd ..
-          python build_kernel.py --aosp --target=${{matrix.device}}
+          python build_kernel.py --target=${{matrix.device}}
 
       - name: Print Logs
         if: failure()
