@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         device: [a51,f41,m31s,m31,m21,gta4xl,gta4xlwifi]
-        variant: ['', oneui]
+        variant: ['aosp', oneui]
         ksu: ['', no-ksu]
     name: "Build ${{ matrix.variant }} for ${{ matrix.device }}"
     steps:
