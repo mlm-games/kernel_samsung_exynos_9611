@@ -15,7 +15,8 @@ jobs:
       matrix:
         include:
           - device: a51
-          - device: m30s
+          - device: gta4xl
+          - device: gta4xlwifi
           - device: m21
           - device: m31
           - device: m31s
