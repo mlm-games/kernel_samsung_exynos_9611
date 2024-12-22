@@ -121,7 +121,7 @@ def build_kernel(args):
         logger.info('Make clean...')
         shutil.rmtree(outDir)
 
-        common_flags = [
+    common_flags = [
         'CROSS_COMPILE=aarch64-linux-gnu-', 'CC=clang', 'LD=ld.lld', 
         'AS=llvm-as', 'AR=llvm-ar', 'OBJDUMP=llvm-objdump', 
         'READELF=llvm-readelf', 'NM=llvm-nm', 'OBJCOPY=llvm-objcopy', 
