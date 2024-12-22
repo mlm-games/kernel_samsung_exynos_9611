@@ -31,7 +31,7 @@ jobs:
       matrix:
         device: [a51,f41,m31s,m31,m21,gta4xl,gta4xlwifi]
         variant: ['', --oneui]
-        ksu: ['', no-ksu]
+        ksu: ['', --no-ksu]
     name: "Build ${{ matrix.variant }} for ${{ matrix.device }}"
     steps:
       - name: Checkout source
@@ -57,7 +57,7 @@ jobs:
       
       - name: Run build
         run: |
-          python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} --${{ matrix.ksu }}
+          python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} ${{ matrix.ksu }}
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
