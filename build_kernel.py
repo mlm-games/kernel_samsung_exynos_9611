@@ -97,6 +97,8 @@ def parse_arguments():
 def setup_environment():
     if not check_file("toolchain"):
         raise FileNotFoundError(f"Please make toolchain available at {os.getcwd()}")
+
+    run_command(['git', 'submodule', 'update', '--init'])
     
     CompilerClang.test_executable()
     
