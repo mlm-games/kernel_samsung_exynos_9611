@@ -50,7 +50,7 @@ jobs:
           rm -rf toolchain && mkdir toolchain && tar -xvf weebx-clang.tar.gz -C toolchain && rm -rf weebx-clang.tar.gz
 
       - name: Initialize KernelSU
-        if: matrix.ksu == '--no-ksu'
+        if: matrix.ksu != '--no-ksu'
         run: |
           curl -LSs "https://raw.githubusercontent.com/mlm-games/KernelSU-Non-GKI/main/kernel/setup-subm.sh" | bash -s 
           python3 KernelSU/scripts/integrate-no-kprobe.py --no-defconfig-flag
