@@ -32,7 +32,7 @@ jobs:
         device: [a51,f41,m31s,m31,m21,gta4xl,gta4xlwifi]
         variant: ['', --oneui]
         ksu: ['', --no-ksu]
-    name: "Build ${{ matrix.variant }} for ${{ matrix.device }}"
+    name: "Build ${{ matrix.device }} ${{ matrix.variant }} ${{ matrix.ksu }}"
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
