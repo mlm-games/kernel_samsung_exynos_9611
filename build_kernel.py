@@ -3,156 +3,197 @@ import subprocess
 import os
 import shutil
 import re
+import time
 from datetime import datetime
 import zipfile
+import logging
 
-class CommandError(Exception):
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+class CommandExecutionError(Exception):
     pass
 
-def run_command(command):
+def execute_command(command: list[str], log_output=True):
+    logger.info(f'Executing command: "{" ".join(command)}"')
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
+    out, err = process.communicate()
+    
+    if log_output:
+        log_command_output(process.pid, out, err)
+    
     if process.returncode != 0:
-        raise CommandError(f"Command failed: {command}. Exit code: {process.returncode}")
-    return stdout.decode("utf-8"), stderr.decode("utf-8")
+        raise CommandExecutionError(f"Command failed: {command}. Exit code: {process.returncode}")
+    
+    return out.decode('utf-8'), err.decode('utf-8')
 
-def file_exists(filepath):
-    if not os.path.exists(filepath):
-        print(f"File not found: {filepath}")
-        return False
-    return True
+def log_command_output(pid, out, err):
+    stdout_log = f"{pid}_stdout.log"
+    stderr_log = f"{pid}_stderr.log"
+    
+    with open(stdout_log, "w") as f:
+        f.write(out.decode('utf-8'))
+    with open(stderr_log, "w") as f:
+        f.write(err.decode('utf-8'))
+    
+    logger.info(f"Output log files: {stdout_log}, {stderr_log}")
 
-def extract_match(regex, text):
-    match = re.search(regex, text)
-    if not match:
-        raise AssertionError(f'Failed to match pattern: {pattern} with regex: {regex}')
-    return match.group(1)
+def check_file(filename):
+    exists = os.path.exists(filename)
+    logger.info(f"Checking file {'exists' if exists else 'does not exist'}: {filename}")
+    return exists
 
-def display_info(info_dict):
-    print('================================')
-    for key, value in info_dict.items():
-        print(f"{key}={value}")
-    print('================================')
+def match_and_get(regex: str, pattern: str):
+    matched = re.search(regex, pattern)
+    if not matched:
+        raise ValueError(f'Failed to match: for pattern: {pattern} regex: {regex}')
+    return matched.group(1)
 
-def create_zip(zip_filename, files):
-    print(f"Creating zip: {zip_filename} with {len(files)} files")
-    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        for file in files:
-            zf.write(file)
-    print("Zip creation complete")
+def print_dictinfo(info: dict[str, str]):
+    logger.info('=' * 40)
+    for k, v in info.items():
+        logger.info(f"{k}={v}")
+    logger.info('=' * 40)
 
-class ClangCompiler:
+def zip_files(zipfilename: str, files: list[str]):
+    logger.info(f"Zipping {len(files)} files to {zipfilename}...")
+    with zipfile.ZipFile(zipfilename, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for f in files:
+            zf.write(f)
+    logger.info("Zipping completed successfully")
+
+class CompilerClang:
     @staticmethod
-    def verify_executable():
+    def test_executable():
         try:
-            run_command(['./toolchain/bin/clang', '-v'])
-        except CommandError:
-            print("Clang execution failed")
-            raise
+            execute_command(['./toolchain/bin/clang', '-v'])
+        except CommandExecutionError as e:
+            logger.error("Failed to execute clang, something went wrong")
+            raise e
     
     @staticmethod
     def get_version():
-        version_regex = r"(.*?clang version \d+(\.\d+)*)"
-        _, stderr_output = run_command(['./toolchain/bin/clang', '-v'])
-        return extract_match(version_regex, stderr_output)
+        clangversionRegex = r"(.*?clang version \d+(\.\d+)*).*"
+        _, tcversion = execute_command(['./toolchain/bin/clang', '-v'], log_output=False)
+        return match_and_get(clangversionRegex, tcversion)
 
-def main():
-    parser = argparse.ArgumentParser(description="Build Kernel with specified arguments")
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Build Grass Kernel with specified arguments")
+    
+    parser.add_argument('--oneui', action='store_true', help="OneUI variant")
+    parser.add_argument('--permissive', action='store_true', help="Permissive SELinux")
     parser.add_argument('--target', type=str, required=True, help="Target device (a51/m21/...)")
+    parser.add_argument('--no-ksu', action='store_true', help="Don't include KernelSU support in kernel")
     parser.add_argument('--allow-dirty', action='store_true', help="Allow dirty build")
-    parser.add_argument('--oneui', action='store_true', help="OneUI build")
-    parser.add_argument('--permissive', action='store_true', help="Use SELinux permissive mode")
+
     args = parser.parse_args()
     
-    valid_targets = ['a51', 'f41', 'm31s', 'm31', 'm21', 'gta4xl', 'gta4xlwifi']
-    if args.target not in valid_targets:
-        print("Specify a valid target: a51/f41/m31s/m31/m21/gta4xl/gta4xlwifi")
-        return
+    if args.target not in ['a51', 'm21', 'm31', 'm31s', 'f41', 'gta4xl', 'gta4xlwifi']:
+        raise ValueError("Please specify a valid target: a51/m21/m31/m31s/f41/gta4xl/gta4xlwifi")
+    
+    return args
 
-    common_flags = [
+def setup_environment():
+    if not check_file("toolchain"):
+        raise FileNotFoundError(f"Please make toolchain available at {os.getcwd()}")
+    
+    CompilerClang.test_executable()
+    
+    tcPath = os.path.join(os.getcwd(), 'toolchain', 'bin')
+    if tcPath not in os.environ['PATH'].split(os.pathsep):
+        os.environ["PATH"] = tcPath + ':' + os.environ["PATH"]
+
+def build_kernel(args):
+    variantStr = 'OneUI' if args.oneui else 'AOSP'
+    
+    print_dictinfo({
+        'TARGET_KERNEL': 'SN',
+        'TARGET_VARIANT': variantStr,
+        'TARGET_DEVICE': args.target,
+        'TARGET_INCLUDES_KSU': not args.no_ksu,
+        'TARGET_USES_LLVM': True,
+        'TOOLCHAIN': CompilerClang.get_version(),
+    })
+    
+    outDir = 'out'
+    if os.path.exists(outDir) and not args.allow_dirty:
+        logger.info('Make clean...')
+        shutil.rmtree(outDir)
+
+        common_flags = [
         'CROSS_COMPILE=aarch64-linux-gnu-', 'CC=clang', 'LD=ld.lld', 
         'AS=llvm-as', 'AR=llvm-ar', 'OBJDUMP=llvm-objdump', 
         'READELF=llvm-readelf', 'NM=llvm-nm', 'OBJCOPY=llvm-objcopy', 
         'ARCH=arm64', f'-j{os.cpu_count()}'
     ]
- 
-    kernel_version = "1.7.0"
-
-    if not file_exists("AnyKernel3/anykernel.sh"):
-        run_command(['git', 'submodule', 'update', '--init'])
-    if not file_exists("toolchain/bin/clang"):
-        print(f"Toolchain must be available at {os.getcwd()}/toolchain")
-        return
-    
-    ClangCompiler.verify_executable()
-    
-    build_type = "OneUI" if args.oneui else "AOSP"
-    selinux_state = "Permissive" if args.permissive else "Enforcing"
-    display_info({
-        'Kernel Name': 'Something New',
-        'Kernel Version': kernel_version,
-        'Build Type': build_type,
-        'SELinux': selinux_state,
-        'Device': args.target,
-        'TARGET_USES_LLVM': True,
-        'TOOLCHAIN_VERSION': ClangCompiler.get_version(),
-    })
-    
-    toolchain_path = os.path.join(os.getcwd(), 'toolchain', 'bin')
-    if toolchain_path not in os.environ['PATH'].split(os.pathsep):
-        os.environ["PATH"] = toolchain_path + ':' + os.environ["PATH"]
-    
-    output_dir = 'out'
-    if os.path.exists(output_dir) and not args.allow_dirty:
-        print('Cleaning build output...')
-        shutil.rmtree(output_dir)
     
     make_common = ['make', 'O=out', 'LLVM=1', f'-j{os.cpu_count()}'] + common_flags
-    make_defconfig = make_common + [f'exynos9611-{args.target}_defconfig']
-    
+    defconfigs = [f'exynos9611-{args.target}_defconfig']
+    if not args.no_ksu:
+        defconfigs.append('ksu.config')
     if args.oneui:
-        make_defconfig += ['oneui.config']
+        defconfigs.append('oneui.config')
     if args.permissive:
-        make_defconfig += ['permissive.config']
-
-    start_time = datetime.now()
-    print('Running make defconfig...')
-    run_command(make_defconfig)
-    print('Building the kernel...')
-    run_command(make_common)
-    print('Build complete')
-    elapsed_time = datetime.now() - start_time
+        defconfigs.append('permissive.config')
+    defconfigs = [i for i in defconfigs]
     
-    with open(os.path.join(output_dir, 'include', 'generated', 'utsrelease.h')) as f:
-        kernel_version_info = extract_match(r'"([^"]+)"', f.read())
+    make_defconfig = make_common + defconfigs
+    
+    start_time = datetime.now()
+    logger.info('Make defconfig...')
+    execute_command(make_defconfig)
+    logger.info('Make kernel...')
+    execute_command(make_common)
+    logger.info('Kernel build completed')
+    build_time = datetime.now() - start_time
+    
+    return build_time
+
+def package_kernel(args, build_time):
+    outDir = 'out'
+    variantStr = 'OneUI' if args.oneui else 'AOSP'
+    
+    with open(os.path.join(outDir, 'include', 'generated', 'utsrelease.h')) as f:
+        kver = match_and_get(r'"([^"]+)"', f.read())
     
     shutil.copyfile('out/arch/arm64/boot/Image', 'AnyKernel3/Image')
-    zip_filename = 'SN_{}_{}_{}_{}.zip'.format(
-        kernel_version, args.target, 'OneUI' if args.oneui else 'AOSP', datetime.today().strftime('%Y-%m-%d'))
+    zipname = f'SN_{args.target}_{variantStr}_{datetime.today().strftime("%Y-%m-%d")}.zip'
+    
     os.chdir('AnyKernel3/')
-    create_zip(zip_filename, [
+    zip_files(zipname, [
         'Image', 
         'META-INF/com/google/android/update-binary',
         'META-INF/com/google/android/updater-script',
         'tools/ak3-core.sh',
         'tools/busybox',
         'tools/magiskboot',
-        'anykernel.sh',
-        'version'
+        'anykernel.sh'
     ])
-    final_zip_path = os.path.join(os.getcwd(), '..', zip_filename)
+    
+    newZipName = os.path.join(os.getcwd(), '..', zipname)
     try:
-        os.remove(final_zip_path)
+        os.remove(newZipName)
     except FileNotFoundError:
         pass
-    shutil.move(zip_filename, final_zip_path)
+    shutil.move(zipname, newZipName)
     os.chdir('..')
-    display_info({
-        'OUT_ZIPNAME': zip_filename,
-        'KERNEL_VERSION': kernel_version_info,
-        'ELAPSED_TIME': f"{elapsed_time.total_seconds()} seconds"
-    })
     
+    print_dictinfo({
+        'OUT_ZIPNAME': zipname,
+        'KERNEL_VERSION': kver,
+        'BUILD_TIME': f"{build_time.total_seconds():.2f} seconds"
+    })
+
+def main():
+    try:
+        args = parse_arguments()
+        setup_environment()
+        build_time = build_kernel(args)
+        package_kernel(args, build_time)
+    except Exception as e:
+        logger.error(f"An error occurred: {str(e)}")
+        raise
+
 if __name__ == '__main__':
     main()
-
