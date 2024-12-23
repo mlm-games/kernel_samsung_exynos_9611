@@ -108,6 +108,7 @@ def setup_environment():
 
 def build_kernel(args):
     variantStr = 'OneUI' if args.oneui else 'AOSP'
+    includesKSU = 'KSU' if not args.no_ksu else ''
     
     print_dictinfo({
         'TARGET_KERNEL': 'SN',
@@ -155,12 +156,13 @@ def build_kernel(args):
 def package_kernel(args, build_time):
     outDir = 'out'
     variantStr = 'OneUI' if args.oneui else 'AOSP'
+    includesKSU = 'KSU' if not args.no_ksu else ''
     
     with open(os.path.join(outDir, 'include', 'generated', 'utsrelease.h')) as f:
         kver = match_and_get(r'"([^"]+)"', f.read())
     
     shutil.copyfile('out/arch/arm64/boot/Image', 'AnyKernel3/Image')
-    zipname = f'SN_{args.target}_{variantStr}_{datetime.today().strftime("%Y-%m-%d")}.zip'
+    zipname = f'SN_{args.target}_{includesKSU}_{variantStr}_{datetime.today().strftime("%Y-%m-%d")}.zip'
     
     os.chdir('AnyKernel3/')
     zip_files(zipname, [
