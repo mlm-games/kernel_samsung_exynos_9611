@@ -70,7 +70,7 @@ jobs:
         with:
           files: |
             *SN*.zip
-          name: SN (non-)KernelSU Flashable zips // ${{ inputs.tag_name }}
+          name: SN (with/without KernelSU) Flashable zips // ${{ inputs.tag_name }}
           tag_name: ${{ inputs.tag_name }}
           body: |
             Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing)
