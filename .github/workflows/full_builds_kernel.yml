@@ -58,13 +58,11 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/mlm-games/KernelSU-Non-GKI/main/kernel/setup-subm.sh" | bash -s 
           python3 KernelSU/scripts/integrate-no-kprobe.py --no-defconfig-flag
       
-      - name: Run build
-      - uses: actions/retry@v2
+      - uses: Wandalen/wretry.action@master
         with:
-          timeout_minutes: 30
-          max_attempts: 3
-          retry_wait_seconds: 10
-          command: |
+          attempt_limit: 3
+          attempt_delay: 10
+          with: |
             python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} ${{ matrix.ksu }}
 
       - name: Print Logs
