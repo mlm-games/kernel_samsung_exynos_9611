@@ -1,15 +1,16 @@
-name: Build and Release Kernel Zips
+name: Build Kernel Zips (with/out releases)
 
 on:
-  # push:
-  #   tags:
-  #     - 'v*' # triggers on any tag starting with 'v'
+  push:
+    branches: '**'
+  pull_request:
+    branches: '**'
   workflow_dispatch:
     inputs:
       tag_name:
         description: 'Tag name'
         required: true
-        default: 'v348-r1'
+        default: '1.8.0'
       upload_releases:
         description: 'Upload releases'
         required: true
@@ -28,10 +29,13 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      max-parallel: 4   
       matrix:
         device: [a51,f41,m31s,m31,m21,gta4xl,gta4xlwifi]
-        variant: ['', oneui]
-    name: "Build ${{ matrix.variant }} for ${{ matrix.device }}"
+        variant: ['', --oneui]
+        ksu: ['', --no-ksu]
+
+    name: "Build ${{ matrix.device }} ${{ matrix.variant }} ${{ matrix.ksu }}"
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -47,20 +51,32 @@ jobs:
         run: |
           wget https://github.com/XSans0/WeebX-Clang/releases/download/WeebX-Clang-19.1.5-release/WeebX-Clang-19.1.5.tar.gz -O "weebx-clang.tar.gz"
           rm -rf toolchain && mkdir toolchain && tar -xvf weebx-clang.tar.gz -C toolchain && rm -rf weebx-clang.tar.gz
-          
-      - name: Run build
-        run: |
-          git submodule update --remote --init
-          cd KernelSU && git checkout v0.9.5 && cd ..
-          python build_kernel.py --${{ matrix.variant }} --target=${{ matrix.device }}
 
+      - name: Initialize KernelSU
+        if: matrix.ksu != '--no-ksu'
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/mlm-games/KernelSU-Non-GKI/main/kernel/setup-subm.sh" | bash -s 
+          python3 KernelSU/scripts/integrate-no-kprobe.py --no-defconfig-flag
+          
+      - name: Build Kernel
+        uses: Wandalen/wretry.action@master
+        with:
+          attempt_limit: 3
+          attempt_delay: 10
+          command: python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} ${{ matrix.ksu }}
+
+      - name: Print Logs
+        if: failure()
+        run: |
+          find . -type f -name '*err.log' -exec cat {} \;
+          
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         if: inputs.upload_releases == true
         with:
           files: |
-            *ernel*.zip
-          name: Grassy Kernel Flashable zips // ${{ inputs.tag_name }}
+            *SN*.zip
+          name: SN (with/without KernelSU) Flashable zips // ${{ inputs.tag_name }}
           tag_name: ${{ inputs.tag_name }}
           body: |
             Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing)

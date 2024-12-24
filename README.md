@@ -48,7 +48,7 @@ Flash the kernel using custom recovery or via adb sideload.
 
 ### Acknowledgments
 
-- [cat658011](https://github.com/cat658011)
+- Base repo by: [cat658011](https://github.com/cat658011)
 - [Tim Zammerman](https://github.com/linux4)
 - [Royna2544](https://github.com/Royna2544)
 - [Samsung Open Source](https://opensource.samsung.com/)
