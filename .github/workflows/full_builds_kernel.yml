@@ -62,8 +62,7 @@ jobs:
         with:
           attempt_limit: 3
           attempt_delay: 10
-          with: |
-            python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} ${{ matrix.ksu }}
+          command: python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} ${{ matrix.ksu }}
 
       - name: Print Logs
         if: failure()
