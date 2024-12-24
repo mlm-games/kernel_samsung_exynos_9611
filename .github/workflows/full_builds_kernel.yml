@@ -29,17 +29,11 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      max-parallel: 4   
       matrix:
         device: [a51,f41,m31s,m31,m21,gta4xl,gta4xlwifi]
         variant: ['', --oneui]
         ksu: ['', --no-ksu]
-        exclude:
-          - device: gta4xl
-            variant: --oneui
-            ksu: '' # (empty string)
-          - device: gta4xlwifi
-            variant: --oneui
-            ksu: '' 
 
     name: "Build ${{ matrix.device }} ${{ matrix.variant }} ${{ matrix.ksu }}"
     steps:
@@ -65,8 +59,13 @@ jobs:
           python3 KernelSU/scripts/integrate-no-kprobe.py --no-defconfig-flag
       
       - name: Run build
-        run: |
-          python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} ${{ matrix.ksu }}
+      - uses: actions/retry@v2
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          retry_wait_seconds: 10
+          command: |
+            python build_kernel.py ${{ matrix.variant }} --target=${{ matrix.device }} ${{ matrix.ksu }}
 
       - name: Print Logs
         if: failure()
