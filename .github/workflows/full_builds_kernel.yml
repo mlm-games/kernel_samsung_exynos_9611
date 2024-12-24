@@ -57,8 +57,9 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/mlm-games/KernelSU-Non-GKI/main/kernel/setup-subm.sh" | bash -s 
           python3 KernelSU/scripts/integrate-no-kprobe.py --no-defconfig-flag
-      
-      - uses: Wandalen/wretry.action@master
+          
+      - name: Build Kernel
+        uses: Wandalen/wretry.action@master
         with:
           attempt_limit: 3
           attempt_delay: 10
