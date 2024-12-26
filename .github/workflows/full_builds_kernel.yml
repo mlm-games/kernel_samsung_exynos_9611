@@ -55,8 +55,10 @@ jobs:
       - name: Initialize KernelSU
         if: matrix.ksu != '--no-ksu'
         run: |
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next-susfs-4.14
+          curl -LSs "https://raw.githubusercontent.com/mlm-games/KernelSU-Non-GKI/main/kernel/setup-subm.sh" | bash -s 
           python3 KernelSU/scripts/integrate-no-kprobe.py --no-defconfig-flag
+          curl -LSs "https://raw.githubusercontent.com/mlm-games/KernelSU-Non-GKI/main/kernel/setup-subm.sh" | bash -s -- --cleanup
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next-susfs-4.14
           
       - name: Build Kernel
         uses: Wandalen/wretry.action@master
