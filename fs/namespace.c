@@ -57,22 +57,22 @@
 #define ART_ALLOW 2
 #endif /*CONFIG_RKP_NS_PROT */
 
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-extern bool susfs_is_current_ksu_domain(void);
-extern bool susfs_is_current_zygote_domain(void);
-#define CL_SUSFS_COPY_MNT_NS 0x1000000
-#define DEFAULT_SUS_MNT_GROUP_ID 1000
-#endif
-
-#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
-extern int susfs_auto_add_sus_bind_mount(const char *pathname, struct path *path_target);
-#endif
-#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
-extern void susfs_auto_add_try_umount_for_bind_mount(struct path *path);
-#endif
-#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-extern void susfs_auto_add_sus_ksu_default_mount(const char __user *to_pathname);
-#endif
+ #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+ extern bool susfs_is_current_ksu_domain(void);
+ extern bool susfs_is_current_zygote_domain(void);
+ #define CL_SUSFS_COPY_MNT_NS 0x1000000
+ #define DEFAULT_SUS_MNT_GROUP_ID 1000
+ #endif
+ 
+ #ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+ extern int susfs_auto_add_sus_bind_mount(const char *pathname, struct path *path_target);
+ #endif
+ #ifdef CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+ extern void susfs_auto_add_try_umount_for_bind_mount(struct path *path);
+ #endif
+ #ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+ extern void susfs_auto_add_sus_ksu_default_mount(const char __user *to_pathname);
+ #endif
 
 /* Maximum number of mounts in a mount namespace */
 unsigned int sysctl_mount_max __read_mostly = 100000;
@@ -320,16 +320,20 @@ static int mnt_alloc_vfsmount(struct mount *mnt)
 static void mnt_free_id(struct mount *mnt)
 {
 	int id = mnt->mnt_id;
-
-	#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-		// If mnt->mnt.android_kabi_reserved4 is not zero, it means mnt->mnt_id is spoofed,
-		// so here we return the original mnt_id for being freed.
-		if (unlikely(mnt->mnt.android_kabi_reserved4)) {
-			ida_free(&mnt_id_ida, mnt->mnt.android_kabi_reserved4);
-			return;
-		}
-	#endif
-
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+	int orig_id;
+	// If mnt->mnt.android_kabi_reserved4 is not zero, it means mnt->mnt_id is spoofed,
+	// so here we return the original mnt_id for being freed.
+	if (unlikely(mnt->mnt.android_kabi_reserved4)) {
+		orig_id = mnt->mnt.android_kabi_reserved4;
+		spin_lock(&mnt_id_lock);
+		ida_remove(&mnt_id_ida, orig_id);
+		if (mnt_id_start > orig_id)
+			mnt_id_start = orig_id;
+		spin_unlock(&mnt_id_lock);
+		return;
+	}
+#endif
 	spin_lock(&mnt_id_lock);
 	ida_remove(&mnt_id_ida, id);
 	if (mnt_id_start > id)
@@ -372,16 +376,14 @@ static int mnt_alloc_group_id(struct mount *mnt)
 void mnt_release_group_id(struct mount *mnt)
 {
 	int id = mnt->mnt_group_id;
-
-	#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-		// If mnt->mnt_group_id >= DEFAULT_SUS_MNT_GROUP_ID, it means 'mnt' is sus mount,
-		// here we don't need to free the mnt_group_id and just simply return and do nothing.
-		if (unlikely(mnt->mnt_group_id >= DEFAULT_SUS_MNT_GROUP_ID)) {
-			mnt->mnt_group_id = 0;
-			return;
-		}
-	#endif
-
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+	// If mnt->mnt_group_id >= DEFAULT_SUS_MNT_GROUP_ID, it means 'mnt' is sus mount,
+	// here we don't need to free the mnt_group_id and just simply return and do nothing.
+	if (unlikely(mnt->mnt_group_id >= DEFAULT_SUS_MNT_GROUP_ID)) {
+		mnt->mnt_group_id = 0;
+		return;
+	}
+#endif
 	ida_remove(&mnt_group_ida, id);
 	if (mnt_group_start > id)
 		mnt_group_start = id;
@@ -1386,14 +1388,14 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void 
 	mnt->mnt_mountpoint = mnt->mnt.mnt_root;
 #endif	
 	mnt->mnt_parent = mnt;
-
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	if (susfs_is_current_zygote_domain()) {
-		mnt->mnt.android_kabi_reserved4 = mnt->mnt_id;
-		mnt->mnt_id = current->android_kabi_reserved8++;
-	}
-#endif
-
+ 
+ #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+ 	if (susfs_is_current_zygote_domain()) {
+ 		mnt->mnt.android_kabi_reserved4 = mnt->mnt_id;
+ 		mnt->mnt_id = current->android_kabi_reserved8++;
+ 	}
+ #endif
+ 
 	lock_mount_hash();
 	list_add_tail(&mnt->mnt_instance, &root->d_sb->s_mounts);
 	unlock_mount_hash();
@@ -1521,14 +1523,14 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 	mnt->mnt_mountpoint = mnt->mnt.mnt_root;
 #endif
 	mnt->mnt_parent = mnt;
-
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	if (susfs_is_current_zygote_domain() && !(flag & CL_SUSFS_COPY_MNT_NS)) {
-		mnt->mnt.android_kabi_reserved4 = mnt->mnt_id;
-		mnt->mnt_id = current->android_kabi_reserved8++;
-	}
-#endif
-
+ 
+ #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+ 	if (susfs_is_current_zygote_domain() && !(flag & CL_SUSFS_COPY_MNT_NS)) {
+ 		mnt->mnt.android_kabi_reserved4 = mnt->mnt_id;
+ 		mnt->mnt_id = current->android_kabi_reserved8++;
+ 	}
+ #endif
+ 
 	lock_mount_hash();
 	list_add_tail(&mnt->mnt_instance, &sb->s_mounts);
 	unlock_mount_hash();
@@ -2192,6 +2194,40 @@ static inline bool may_mandlock(void)
 	return false;
 }
 #endif
+
+static int can_umount(const struct path *path, int flags)
+{
+	struct mount *mnt = real_mount(path->mnt);
+
+	if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
+		return -EINVAL;
+	if (!may_mount())
+		return -EPERM;
+	if (path->dentry != path->mnt->mnt_root)
+		return -EINVAL;
+	if (!check_mnt(mnt))
+		return -EINVAL;
+	if (mnt->mnt.mnt_flags & MNT_LOCKED) /* Check optimistically */
+		return -EINVAL;
+	if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
+		return -EPERM;
+	return 0;
+}
+
+int path_umount(struct path *path, int flags)
+{
+	struct mount *mnt = real_mount(path->mnt);
+	int ret;
+
+	ret = can_umount(path, flags);
+	if (!ret)
+		ret = do_umount(mnt, flags);
+
+	/* we mustn't call path_put() as that would clear mnt_expiry_mark */
+	dput(path->dentry);
+	mntput_no_expire(mnt);
+	return ret;
+}
 
 /*
  * Now umount can handle mount points as well as block devices.
@@ -3716,12 +3752,13 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
 	copy_flags = CL_COPY_UNBINDABLE | CL_EXPIRE;
 	if (user_ns != ns->user_ns)
 		copy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;
-	#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-		if (is_zygote_pid) {
-			// Let clone_mnt() in copy_tree() know we only interested in function called by copy_mnt_ns()
-			copy_flags |= CL_SUSFS_COPY_MNT_NS;
-		}
-	#endif
+ #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+ 	if (is_zygote_pid) {
+ 		// Let clone_mnt() in copy_tree() know we only interested in function called by copy_mnt_ns()
+ 		copy_flags |= CL_SUSFS_COPY_MNT_NS;
+ 	}
+ #endif
+ 
 #ifdef CONFIG_RKP_NS_PROT
 	new = copy_tree(old, old->mnt->mnt_root, copy_flags);
 #else
@@ -3778,29 +3815,29 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
 #endif
 			p = next_mnt(p, old);
 	}
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	// current->android_kabi_reserved8 -> to record last valid fake mnt_id to zygote pid
-	// q->mnt.android_kabi_reserved4 -> original mnt_id
-	// q->mnt_id -> will be modified to the fake mnt_id
-
-	// Here We are only interested in processes of which original mnt namespace belongs to zygote 
-	// Also we just make use of existing 'q' mount pointer, no need to delcare extra mount pointer
-	if (is_zygote_pid) {
-		last_entry_mnt_id = list_first_entry(&new_ns->list, struct mount, mnt_list)->mnt_id;
-		list_for_each_entry(q, &new_ns->list, mnt_list) {
-			if (unlikely(q->mnt.mnt_root->d_inode->i_state & 33554432)) {
-				continue;
-			}
-			q->mnt.android_kabi_reserved4 = q->mnt_id;
-			q->mnt_id = last_entry_mnt_id++;
-		}
-	}
-	// Assign the 'last_entry_mnt_id' to 'current->android_kabi_reserved8' for later use.
-	// should be fine here assuming zygote is forking/unsharing app in one single thread.
-	// Or should we put a lock here?
-	current->android_kabi_reserved8 = last_entry_mnt_id;
-#endif
-
+ #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+ 	// current->android_kabi_reserved8 -> to record last valid fake mnt_id to zygote pid
+ 	// q->mnt.android_kabi_reserved4 -> original mnt_id
+ 	// q->mnt_id -> will be modified to the fake mnt_id
+ 
+ 	// Here We are only interested in processes of which original mnt namespace belongs to zygote 
+ 	// Also we just make use of existing 'q' mount pointer, no need to delcare extra mount pointer
+ 	if (is_zygote_pid) {
+ 		last_entry_mnt_id = list_first_entry(&new_ns->list, struct mount, mnt_list)->mnt_id;
+ 		list_for_each_entry(q, &new_ns->list, mnt_list) {
+ 			if (unlikely(q->mnt.mnt_root->d_inode->i_state & 33554432)) {
+ 				continue;
+ 			}
+ 			q->mnt.android_kabi_reserved4 = q->mnt_id;
+ 			q->mnt_id = last_entry_mnt_id  ;
+ 		}
+ 	}
+ 	// Assign the 'last_entry_mnt_id' to 'current->android_kabi_reserved8' for later use.
+ 	// should be fine here assuming zygote is forking/unsharing app in one single thread.
+ 	// Or should we put a lock here?
+ 	current->android_kabi_reserved8 = last_entry_mnt_id;
+ #endif
+ 
 	namespace_unlock();
 
 	if (rootmnt)
