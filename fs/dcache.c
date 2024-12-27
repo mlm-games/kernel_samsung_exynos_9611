@@ -2216,12 +2216,6 @@ struct dentry *__d_lookup_rcu(const struct dentry *parent,
 	if (unlikely(parent->d_flags & DCACHE_OP_COMPARE))
 		return __d_lookup_rcu_op_compare(parent, name, seqp);
 
-	#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-		if (dentry->d_inode && unlikely(dentry->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
-			continue;
-		}
-	#endif
-
 	/*
 	 * The hash list is protected using RCU.
 	 *
@@ -2264,6 +2258,11 @@ struct dentry *__d_lookup_rcu(const struct dentry *parent,
 			continue;
 		if (dentry_cmp(dentry, str, hashlen_len(hashlen)) != 0)
 			continue;
+ #ifdef CONFIG_KSU_SUSFS_SUS_PATH
+ 			if (dentry->d_inode && unlikely(dentry->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
+ 				continue;
+ 			}
+ #endif
 		*seqp = seq;
 		return dentry;
 	}
