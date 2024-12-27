@@ -1113,11 +1113,11 @@ static int may_linkat(struct path *link)
 {
 	struct inode *inode;
 
-	#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-		if (link->dentry->d_inode && unlikely(link->dentry->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
-			return -ENOENT;
-		}
-	#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (link->dentry->d_inode && unlikely(link->dentry->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
+		return -ENOENT;
+	}
+#endif
 
 	if (!sysctl_protected_hardlinks)
 		return 0;
@@ -1692,7 +1692,10 @@ static struct dentry *lookup_real(struct inode *dir, struct dentry *dentry,
 				  unsigned int flags)
 {
 	struct dentry *old;
-	
+	#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		int error;
+	#endif
+
 	/* Don't create child dentry for a dead directory. */
 	if (unlikely(IS_DEADDIR(dir))) {
 		dput(dentry);
@@ -1704,7 +1707,19 @@ static struct dentry *lookup_real(struct inode *dir, struct dentry *dentry,
 		dput(dentry);
 		dentry = old;
 	}
-
+	#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		if (!IS_ERR(dentry) && dentry->d_inode && unlikely(dentry->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
+			if ((flags & (LOOKUP_CREATE | LOOKUP_EXCL))) {
+				error = inode_permission(dir, MAY_WRITE | MAY_EXEC);
+				if (error) {
+					dput(dentry);
+					return ERR_PTR(error);
+				}
+			}
+			dput(dentry);
+			return ERR_PTR(-ENOENT);
+		}
+	#endif
 	return dentry;
 }
 
@@ -1713,30 +1728,12 @@ static struct dentry *__lookup_hash(const struct qstr *name,
 {
 	struct dentry *dentry = lookup_dcache(name, base, flags);
 
-	#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-		int error;
-	#endif
-
 	if (dentry)
 		return dentry;
 
 	dentry = d_alloc(base, name);
 	if (unlikely(!dentry))
 		return ERR_PTR(-ENOMEM);
-
-	#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	if (!IS_ERR(dentry) && dentry->d_inode && unlikely(dentry->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
-		if ((flags & (LOOKUP_CREATE | LOOKUP_EXCL))) {
-			error = inode_permission(dir, MAY_WRITE | MAY_EXEC);
-			if (error) {
-				dput(dentry);
-				return ERR_PTR(error);
-			}
-		}
-		dput(dentry);
-		return ERR_PTR(-ENOENT);
-	}
-	#endif
 
 	return lookup_real(base->d_inode, dentry, flags);
 }
@@ -1866,13 +1863,12 @@ again:
 			dentry = old;
 		}
 	}
-
-	#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-		if (!IS_ERR(dentry) && dentry->d_inode && unlikely(dentry->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
-			dput(dentry);
-			return ERR_PTR(-ENOENT);
-		}
-	#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (!IS_ERR(dentry) && dentry->d_inode && unlikely(dentry->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
+		dput(dentry);
+		return ERR_PTR(-ENOENT);
+	}
+#endif
 out:
 	inode_unlock_shared(inode);
 	return dentry;
@@ -3024,6 +3020,7 @@ static int may_delete(struct vfsmount *mnt, struct inode *dir, struct dentry *vi
 		return error;
 	if (IS_APPEND(dir))
 		return -EPERM;
+
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	if (unlikely(inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
 		return -ENOENT;
@@ -3065,7 +3062,7 @@ static inline int may_create(struct vfsmount *mnt, struct inode *dir, struct den
 	audit_inode_child(dir, child, AUDIT_TYPE_CHILD_CREATE);
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	if (child->d_inode && unlikely(child->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
-		error = inode_permission(dir, MAY_WRITE | MAY_EXEC);
+		error = inode_permission2(mnt, dir, MAY_WRITE | MAY_EXEC);
 		if (error) {
 			return error;
 		}
@@ -3252,7 +3249,7 @@ static int may_o_create(const struct path *dir, struct dentry *dentry, umode_t m
 	int error;
 
 	if (dentry->d_inode && unlikely(dentry->d_inode->i_state & 16777216) && likely(current_cred()->user->android_kabi_reserved2 & 16777216)) {
-		error = inode_permission(dir->dentry->d_inode, MAY_WRITE | MAY_EXEC);
+		error = inode_permission2(dir->mnt, dir->dentry->d_inode, MAY_WRITE | MAY_EXEC);
 		if (error) {
 			return error;
 		}
