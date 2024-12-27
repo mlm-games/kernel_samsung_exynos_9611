@@ -10,6 +10,7 @@ A customized kernel designed to optimize performance and features for Exynos 961
 - Enhanced DeX touchpad support for compatible OneUI versions.
 - Strips away numerous Samsung-introduced debug codes/configurations.
 - Integrates the [WireGuard](https://www.wireguard.com/) in-kernel VPN.
+- Added [KernelSU Next](https://github.com/rifsxd/KernelSU-Next) with [SuSFS](https://gitlab.com/simonpunk/susfs4ksu) support. (heard about from [this](https://github.com/mcagabe19-kernel-stuff/kernel_samsung_universal9611) fork)
 
 ## Compilation Guide
 

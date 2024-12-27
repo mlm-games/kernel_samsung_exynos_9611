@@ -52,7 +52,7 @@ jobs:
           wget https://github.com/XSans0/WeebX-Clang/releases/download/WeebX-Clang-19.1.5-release/WeebX-Clang-19.1.5.tar.gz -O "weebx-clang.tar.gz"
           rm -rf toolchain && mkdir toolchain && tar -xvf weebx-clang.tar.gz -C toolchain && rm -rf weebx-clang.tar.gz
 
-      - name: Initialize KernelSU
+      - name: Initialize KernelSU Next
         if: matrix.ksu != '--no-ksu'
         run: |
           curl -LSs "https://raw.githubusercontent.com/mlm-games/KernelSU-Non-GKI/main/kernel/setup-subm.sh" | bash -s 
@@ -78,7 +78,7 @@ jobs:
         with:
           files: |
             *SN*.zip
-          name: SN (with/without KernelSU) Flashable zips // ${{ inputs.tag_name }}
+          name: SN (with/without susfs+KernelSU Next) Flashable zips // ${{ inputs.tag_name }}
           tag_name: ${{ inputs.tag_name }}
           body: |
             Flash using a custom recovery or Kernel Flasher from Fdroid (Gplay apps are not trustworthy for flashing)
