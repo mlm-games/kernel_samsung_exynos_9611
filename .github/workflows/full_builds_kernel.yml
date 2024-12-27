@@ -59,7 +59,6 @@ jobs:
           python3 KernelSU/scripts/integrate-no-kprobe.py --no-defconfig-flag
           curl -LSs "https://raw.githubusercontent.com/mlm-games/KernelSU-Non-GKI/main/kernel/setup-subm.sh" | bash -s -- --cleanup
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next-susfs-4.14
-          curl -o ./include/linux/susfs.h https://gitlab.com/simonpunk/susfs4ksu/-/raw/1.4.2-kernel-4.19/kernel_patches/include/linux/susfs.h?ref=tags
           
       - name: Build Kernel
         uses: Wandalen/wretry.action@master
