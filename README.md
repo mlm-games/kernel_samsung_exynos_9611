@@ -1,3 +1,5 @@
+Refer [this fork](https://github.com/mlm-studios/kernel_samsung_exynos_9611) for newer builds after my github actions were blocked due to unknown reasons
+
 # Something New Kernel
 
 A customized kernel designed to optimize performance and features for Exynos 9611 devices.
