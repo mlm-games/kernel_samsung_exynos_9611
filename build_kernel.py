@@ -142,7 +142,7 @@ def build_kernel(args):
     defconfigs = [i for i in defconfigs]
     
     make_defconfig = make_common + defconfigs
-    
+
     start_time = datetime.now()
     logger.info('Make defconfig...')
     execute_command(make_defconfig)
