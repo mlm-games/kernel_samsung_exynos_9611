@@ -131,7 +131,7 @@ def build_kernel(args):
         'ARCH=arm64', f'-j{os.cpu_count()}'
     ]
     
-    make_common = ['make', 'O=out', 'LLVM=1', f'-j{os.cpu_count()}'] + common_flags
+    make_common = ['make', 'O=out', 'LLVM=1'] + common_flags
     defconfigs = [f'exynos9611-{args.target}_defconfig']
     if not args.no_ksu:
         defconfigs.append('ksu.config')
@@ -142,7 +142,7 @@ def build_kernel(args):
     defconfigs = [i for i in defconfigs]
     
     make_defconfig = make_common + defconfigs
-    
+
     start_time = datetime.now()
     logger.info('Make defconfig...')
     execute_command(make_defconfig)
